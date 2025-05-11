@@ -1,0 +1,7 @@
+﻿time,subject,behavior,secondsubject
+0:01,logan,locomote,
+0:01,irene,inactive,
+0:01,paddy,locomote,
+0:01,ira,proximity,ivory
+0:04,ingrid,inactive,
+0:04,ivory,proximity,ira
