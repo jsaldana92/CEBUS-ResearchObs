@@ -37,8 +37,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation ("com.dropbox.core:dropbox-core-sdk:5.4.6")
 }

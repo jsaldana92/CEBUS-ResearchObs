@@ -1,0 +1,60 @@
+group 'com.linusu.flutter_web_auth'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    ext.kotlin_version = '1.5.31'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.0.3'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.linusu.flutter_web_auth'
+
+    compileSdkVersion 33
+
+    defaultConfig {
+        minSdkVersion 16
+        targetSdkVersion 33  // ✅ Good to add for clarity
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    // ✅ Add this block to fix the JVM target error
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+}
+
+dependencies {
+    implementation 'androidx.browser:browser:1.3.0'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+}

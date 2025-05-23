@@ -1,9 +1,9 @@
-name: Upload to Dropbox
+name: Upload CSVs to Dropbox
 
 on:
   push:
     paths:
-      - 'data/**'  # triggers only when data/ files change
+      - 'data/**/*.csv'  # Any .csv file inside /data or subfolders
 
 jobs:
   upload:
@@ -12,8 +12,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Upload to Dropbox
-        uses: cjthedj97/dropbox-upload@v1.2
+      - name: Upload CSV files to Dropbox
+        uses: jborges/dropbox-upload-action@v1.2.0
         with:
           dropbox_token: ${{ secrets.DROPBOX_TOKEN }}
-          args: upload ./data /ResearchObs
+          local_path: data/
+          dropbox_path: /ResearchObs
+          recursive: true
