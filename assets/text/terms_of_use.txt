@@ -1,0 +1,32 @@
+TERMS OF USE
+Effective Date: May 27th, 2025
+Governing Law: Georgia, United States
+
+By downloading and using ResearchObs, you agree to the following terms:
+
+1. USE OF THE APP
+You are granted a non-exclusive, non-transferable, revocable license to use ResearchObs for lawful purposes related to behavioral observation and data collection. You may not use the app for illegal, unethical, or harmful purposes.
+
+2. USER RESPONSIBILITY
+You are solely responsible for the data you collect using the app, including ensuring appropriate consent and data protection if your entries involve human subjects or sensitive information.
+
+3. DATA OWNERSHIP
+You retain full ownership of the data you enter into ResearchObs. We do not access, analyze, or share your data. You are responsible for managing, backing up, and exporting your data.
+
+4. LIMITATION OF LIABILITY
+ResearchObs is provided “as is” without warranties of any kind. We are not liable for any loss of data, harm, or damages resulting from the use or misuse of the app. Always back up your data and use the app responsibly.
+
+5. THIRD-PARTY SERVICES
+We are not responsible for any data policies or practices of third-party services, such as Dropbox, even if integrated into the app. Use such services at your discretion.
+
+6. CHANGES TO THE APP OR TERMS
+We may modify or discontinue features of the app at any time. We may also update these Terms. Continued use after updates constitutes your agreement to the revised Terms.
+
+7. TERMINATION
+We reserve the right to suspend or terminate your access to the app if you violate these terms or misuse the app.
+
+8. CONTACT
+If you have questions about these Terms, reach out to:
+
+Jhonatan M. Saldaña Santisteban
+Email: jsaldana@researchobs.com

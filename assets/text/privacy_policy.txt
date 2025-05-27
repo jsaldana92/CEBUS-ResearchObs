@@ -1,0 +1,31 @@
+PRIVACY POLICY
+Effective Date: May 27th, 2025
+
+ResearchObs (“we,” “our,” or “us”) is committed to protecting your privacy. This Privacy Policy explains how we handle your data when you use our mobile application, ResearchObs.
+
+1. DATA COLLECTION
+We do not collect, track, or store any personal information or usage data. All behavioral data you record using the app is stored locally on your device only, unless you choose to export it.
+
+2. DATA EXPORT
+You may choose to export your data to your personal Dropbox account. This export is initiated manually by you and authenticated securely via OAuth. We do not have access to your Dropbox login credentials. The app can upload files and view folder structures in your Dropbox account, but it cannot edit, delete, or modify existing files or folders.
+
+3. PERSONALLY IDENTIFIABLE INFORMATION (PII)
+ResearchObs does not require any PII to function. However, users may enter PII voluntarily as part of their behavioral observations. Users are responsible for ensuring compliance with any ethical or legal obligations when recording and exporting sensitive information, particularly when involving human subjects.
+
+4. CHILDREN'S PRIVACY
+ResearchObs is not intended for use by children under the age of 13 and is designed primarily for animal observation and behavioral research. If you choose to use the app in a context involving minors, you are solely responsible for obtaining any required consent and adhering to relevant regulations.
+
+5. THIRD-PARTY SERVICES
+Dropbox is the only third-party integration. Your use of Dropbox is governed by Dropbox’s Privacy Policy and Terms of Service.
+
+6. SECURITY
+All data remains on your device unless you explicitly export it. We recommend securing your device to prevent unauthorized access to your observational data.
+
+7. CHANGES TO THIS POLICY
+We may update this Privacy Policy from time to time. Updates will be reflected in the app or on our website. Continued use of the app after any changes constitutes acceptance of the updated policy.
+
+8. CONTACT
+For questions or concerns about this Privacy Policy, contact:
+
+Jhonatan M. Saldaña Santisteban
+Email: jsaldana@researchobs.com

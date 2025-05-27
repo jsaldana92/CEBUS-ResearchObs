@@ -1,3 +1,4 @@
+//lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart'; //this is to play audio file
 import 'storage_service.dart'; // this is specifically to call the storage in lib
@@ -6,6 +7,10 @@ import 'settings_page.dart';
 import 'observation_page.dart';
 import 'storage_page.dart';
 import 'navigation_helpers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart' show rootBundle;
+
+
 
 
 
@@ -17,6 +22,8 @@ import 'navigation_helpers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final hasAccepted = prefs.getBool('hasAcceptedPolicies') ?? false;
 
   globals.experimenters = await StorageService.loadList('experimenters');
 
@@ -45,11 +52,16 @@ void main() async {
     await StorageService.saveMap('groupMembers', globals.groupMembers);
   }
 
-  runApp(ResearchObsApp());
+  runApp(ResearchObsApp(showPolicyPopup: !hasAccepted)); //only run app if privay policy and terms of use have been accepted
 }
 
 
 class ResearchObsApp extends StatelessWidget {
+
+  final bool showPolicyPopup;
+
+  const ResearchObsApp({super.key, required this.showPolicyPopup});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -67,7 +79,7 @@ class ResearchObsApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Color(0xFF8eaf8c), // edit this to change all the backgrounds for all pages (https://htmlcolorcodes.com/)
       ),
-      home: HomeScreen(),
+      home: HomeScreen(showPolicyPopup: showPolicyPopup),
       debugShowCheckedModeBanner: false,
     );
   }
@@ -75,6 +87,9 @@ class ResearchObsApp extends StatelessWidget {
 
 
 class HomeScreen extends StatefulWidget {
+  final bool showPolicyPopup;
+  const HomeScreen({super.key, required this.showPolicyPopup});
+
   @override
   HomeScreenState createState() => HomeScreenState();
 }
@@ -82,6 +97,97 @@ class HomeScreen extends StatefulWidget {
 class HomeScreenState extends State<HomeScreen> {
 
   final AudioPlayer _audioPlayer = AudioPlayer(); // enables sound in home screen
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showPolicyPopup) {
+      Future.delayed(Duration.zero, () => showConsentDialog(context));
+    }
+  }
+
+  void showConsentDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Welcome to ResearchObs'),
+          content: const Text(
+              'Before using this app, please review and accept our Privacy Policy and Terms of Use.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                showPolicyDialog(context, 'Privacy Policy', 'assets/text/privacy_policy.txt');
+              },
+              child: const Text('Privacy Policy'),
+            ),
+            TextButton(
+              onPressed: () {
+                showPolicyDialog(context, 'Terms of Use', 'assets/text/terms_of_use.txt');
+              },
+              child: const Text('Terms of Use'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('hasAcceptedPolicies', true);
+                Navigator.of(context).pop();
+              },
+              child: const Text('Accept & Continue'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showPolicyDialog(BuildContext context, String title, String assetPath) async {
+    final text = await rootBundle.loadString(assetPath);
+    final screenSize = MediaQuery.of(context).size;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: screenSize.width * 0.2,
+            vertical: screenSize.height * 0.05,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: screenSize.width * 0.6,
+            height: screenSize.height * 0.9,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Text(text, style: const TextStyle(fontSize: 14)),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
+
 
   //this set of code is needed to call later on pop ups that rely on internal lists or boolean factors (yes/no)
   List<String> selectedExperimenters = []; // used for checkbox selection
@@ -718,7 +824,7 @@ class HomeScreenState extends State<HomeScreen> {
               IconButton(
                   icon: Icon(Icons.close),
                   onPressed: () {
-                    resetObservationInputs(); // 👈 Add this
+                    resetObservationInputs();
                     Navigator.of(context).popUntil((route) => route.isFirst);
                   }
               ),
@@ -790,7 +896,7 @@ class HomeScreenState extends State<HomeScreen> {
               IconButton(
                   icon: Icon(Icons.close),
                   onPressed: () {
-                    resetObservationInputs(); // 👈 Add this
+                    resetObservationInputs();
                     Navigator.of(context).popUntil((route) => route.isFirst);
                   }
               ),
@@ -835,7 +941,7 @@ class HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.transparent, // 👈 override to transparent
+        backgroundColor: Colors.transparent, // override to transparent
         elevation: 0,
         automaticallyImplyLeading: false,
         title: Text(''), // leave blank if you want no text
