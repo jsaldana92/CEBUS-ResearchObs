@@ -13,6 +13,8 @@ import 'navigation_helpers.dart';
 
 
 
+
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -57,7 +59,10 @@ class ResearchObsApp extends StatelessWidget {
           backgroundColor: Color(0xFF3c563d),
           elevation: 0,
           iconTheme: IconThemeData(color: Colors.black), // <-- Customize icon color
-          titleTextStyle: TextStyle(color: Colors.blue, fontSize: 20), // <-- Title text color
+          titleTextStyle: TextStyle(
+              color: Color(0xFF000000),
+              fontSize: 20,
+              fontWeight: FontWeight.bold,), // <-- Title text color, size, and weight
         ),
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Color(0xFF8eaf8c), // edit this to change all the backgrounds for all pages (https://htmlcolorcodes.com/)
@@ -894,6 +899,7 @@ class HomeScreenState extends State<HomeScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () async {
+                  _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
                   await Navigator.of(context).push(
                     createSlideRoute(StoragePage(), fromLeft: false),
                   );
@@ -929,6 +935,7 @@ class HomeScreenState extends State<HomeScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () async {
+                  _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
                   await Navigator.of(context).push(
                     createSlideRoute(SettingsPage(), fromLeft: false),
                   );

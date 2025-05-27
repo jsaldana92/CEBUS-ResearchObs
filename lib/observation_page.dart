@@ -395,12 +395,6 @@ class _ObservationPageState extends State<ObservationPage> {
                   _periodicTimer?.cancel();
                   _elapsedTimer?.cancel();
 
-                  final selectedFolder = await showDialog<String>(
-                    context: context,
-                    builder: (_) => const DropboxFolderPicker(),
-                  );
-                  if (selectedFolder == null) return; // User canceled
-
                   // File naming
                   final String fileGroup = widget.groupName;
                   final String fileGroupHeader = widget.groupName.toUpperCase();
@@ -408,11 +402,11 @@ class _ObservationPageState extends State<ObservationPage> {
                   final String fileTimeSuffix = (globals.selectedTimeOfDay ?? 'TIME').toUpperCase();
                   final filename = "$fileGroup $fileDate $fileTimeSuffix.txt";
 
+// Write to internal storage first
                   final directory = await getApplicationDocumentsDirectory();
                   final filePath = '${directory.path}/$filename';
                   final file = File(filePath);
 
-                  // Header
                   final header = [
                     '# Group: $fileGroupHeader',
                     '# Date and Time: ${globals.recordedDateAndTime ?? ''}',
@@ -432,14 +426,19 @@ class _ObservationPageState extends State<ObservationPage> {
                   final dataLines = observationLog.map((line) => line).toList();
                   final ablibLines = ["#", "# Ablib Data:"];
                   ablibLines.addAll(adLibitumLog.map((line) => line));
-
                   final allContent = [...header, ...dataLines, ...ablibLines].join('\n');
-                  await file.writeAsString(allContent);
+                  await file.writeAsString(allContent); // ✅ Always saves internally
 
+                  // Now ask for Dropbox folder
+                  final selectedFolder = await showDialog<String>(
+                    context: context,
+                    builder: (_) => const DropboxFolderPicker(),
+                  );
+                  if (selectedFolder == null) return; // User canceled Dropbox but file is already saved
+
+                  // Then upload
                   final dropboxPath = '${selectedFolder.startsWith('/') ? '' : '/'}$selectedFolder/$filename';
-                  debugPrint('Uploading to Dropbox path: $dropboxPath');
                   final success = await uploadFileToDropbox(filePath, dropboxPath);
-
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(success ? '✅ Uploaded to Dropbox!' : '❌ Upload failed.')),

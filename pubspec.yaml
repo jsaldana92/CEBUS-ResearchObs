@@ -35,6 +35,7 @@ dependencies:
   shared_preferences: ^2.2.0
   crypto: ^3.0.3
   path_provider: ^2.0.15
+  media_scanner: ^2.0.1
 
 
 
@@ -86,7 +87,8 @@ flutter:
     - assets/sounds/button_press.mp3
     - assets/images/welcome_logo.png
     - assets/images/about_logo.png
-    - assets/images/dropbox_logo.png
+    - assets/icon/skull_icon.png
+    - assets/icon/skull_full_icon.png
     - assets/icon/storage_icon.png
     - assets/icon/settings_icon.png
     - assets/icon/about_icon.png
