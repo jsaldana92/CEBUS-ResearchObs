@@ -2,7 +2,7 @@
     package="com.example.research_obs">
 
     <application
-        android:label="research_obs"
+        android:label="Research Obs"
         android:icon="@mipmap/ic_launcher">
 
         <!-- 🟢 Your main activity -->

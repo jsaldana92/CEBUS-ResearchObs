@@ -7,13 +7,16 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'globals.dart';
+import 'globals.dart' as globals;
 import 'main.dart';
+import 'dropbox_folder_picker.dart';
+
 
 class ObservationPage extends StatefulWidget {
   final String groupName;
+  const ObservationPage({Key? key, required this.groupName}) : super(key: key);
 
-  ObservationPage({required this.groupName});
+
 
   @override
   _ObservationPageState createState() => _ObservationPageState();
@@ -21,7 +24,10 @@ class ObservationPage extends StatefulWidget {
 
 class _ObservationPageState extends State<ObservationPage> {
   final AudioPlayer _audioPlayer = AudioPlayer();
+  bool isCurrentAdLib = false;
+
   String currentLine = '';
+  List<String> displayLog = []; // For combined visual preview only
   List<String> observationLog = [];
   List<String> adLibitumLog = [];
   String? currentTimestamp;
@@ -32,12 +38,37 @@ class _ObservationPageState extends State<ObservationPage> {
   Duration _elapsedTime = Duration.zero;
   Timer? _elapsedTimer;
 
+  String? recordedDateAndTime;
+
+  String _formatDateAndTime(DateTime dateTime) {
+    return "${_monthName(dateTime.month)} ${dateTime.day}, ${dateTime.year} "
+        "${_formatHour(dateTime)}:${_twoDigits(dateTime.minute)}:${_twoDigits(dateTime.second)} "
+        "${dateTime.hour >= 12 ? 'PM' : 'AM'}";
+  }
+
+  String _twoDigits(int n) => n.toString().padLeft(2, '0');
+
+  String _formatHour(DateTime dt) {
+    final h = dt.hour % 12;
+    return (h == 0 ? 12 : h).toString();
+  }
+
+  String _monthName(int month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1];
+  }
+
+
   late final List<String> subjects;
+
 
   @override
   void initState() {
     super.initState();
-    subjects = [...(groupMembers[widget.groupName] ?? []), 'Group'];
+    subjects = [...(globals.groupMembers[widget.groupName] ?? []), 'Inter-G'];
   }
 
   Map<String, dynamic> behaviors = {
@@ -46,27 +77,27 @@ class _ObservationPageState extends State<ObservationPage> {
     'Groom': null,
     'Play': null,
     'Sexual': null,
-    'Feed+': ['Solo-feed', 'Proximity-feed', 'Contact-feed', 'Forage'],
-    'Share+': ['Active-share', 'Passive-share', 'Cofeed', 'Beg'],
+    'Feed+': ['Solo-Feed', 'Proximity-Feed', 'Contact-Feed', 'Forage'],
+    'Share+': ['Active-Share', 'Passive-Share', 'Cofeed', 'Beg'],
     'Inactive': null,
     'Manipulate': null,
     'Locomote': null,
-    'Aggression+': ['Aggression', 'Supplant'],
+    'Aggress+': ['Aggress', 'Supplant'],
     'Abnormal': null,
-    'Ab Lib+': [
-      'Non-contact aggression',
-      'Contact-aggression',
-      'Intergroup aggression',
-      'Submissive',
-      'Solicit',
-      'Supplant',
-      'Intervene',
-      'Post-conflict affiliation',
-      'Sexual',
-      'Intergroup sexual',
-      'Beg',
-      'Food share'
-    ],
+    'Ab Lib+': {
+      'Non-Contact Aggression': 'NC-Aggress*',
+      'Contact Aggression': 'C-Aggress*',
+      'Intergroup Aggression': 'Aggress* Inter-G',
+      'Submissive': 'Submissive*',
+      'Solicit': 'Solicit*',
+      'Supplant': 'Supplant*',
+      'Intervene': 'Intervene*',
+      'Post-Conflict Affiliation': 'PC-Affil*',
+      'Sexual': 'Sexual*',
+      'Intergroup Sexual': 'Sexual* Inter-G',
+      'Beg': 'Beg*',
+      'Food Share': 'Food-Share*',
+    },
     'Note+': 'text'
   };
 
@@ -83,7 +114,7 @@ class _ObservationPageState extends State<ObservationPage> {
       if (_playCount >= 10) {
         timer.cancel();
       } else {
-        _audioPlayer.play(AssetSource('completed_ding.mp3'));
+        _audioPlayer.play(AssetSource('sounds/completed_ding.mp3'));
       }
     });
   }
@@ -123,30 +154,48 @@ class _ObservationPageState extends State<ObservationPage> {
         if (result != null && result.trim().isNotEmpty) {
           addToCurrentLine(result.trim());
         }
-      } else if (nestedOptions is List<String>) {
-        final selected = await showDialog<String>(
-          context: context,
-          builder: (_) => SimpleDialog(
-            title: Text('Select ${behavior.replaceAll('+', '')} Behavior'),
-            children: nestedOptions.map((b) => SimpleDialogOption(
-              child: Text(b),
-              onPressed: () => Navigator.pop(context, b),
-            )).toList(),
-          ),
-        );
+      } else if (nestedOptions is List<String> || nestedOptions is Map<String, String>) {
+        final isAdLib = behavior == 'Ab Lib+';
+
+        String? selected;
+        if (nestedOptions is List<String>) {
+          selected = await showDialog<String>(
+            context: context,
+            builder: (_) => SimpleDialog(
+              title: Text('Select ${behavior.replaceAll('+', '')} Behavior'),
+              children: nestedOptions.map((b) => SimpleDialogOption(
+                child: Text(b),
+                onPressed: () => Navigator.pop(context, b),
+              )).toList(),
+            ),
+          );
+        } else if (nestedOptions is Map<String, String>) {
+          selected = await showDialog<String>(
+            context: context,
+            builder: (_) => SimpleDialog(
+              title: Text('Select ${behavior.replaceAll('+', '')} Behavior'),
+              children: nestedOptions.entries.map((entry) => SimpleDialogOption(
+                child: Text(entry.key),
+                onPressed: () => Navigator.pop(context, entry.key),
+              )).toList(),
+            ),
+          );
+        }
 
         if (selected != null) {
-          final isAdLib = behavior == 'Ab Lib+';
-          final displayText = isAdLib ? '*$selected' : selected;
+          final valueToInsert = (nestedOptions is Map<String, String>)
+              ? nestedOptions[selected]!
+              : selected;
+
           setState(() {
+            isCurrentAdLib = isAdLib;
             if (currentLine.isEmpty) {
               currentTimestamp = _formatTime(_elapsedTime);
-              currentLine = displayText;
+              currentLine = valueToInsert;
             } else {
-              currentLine += ' $displayText';
+              currentLine += ' $valueToInsert';
             }
           });
-          if (isAdLib) adLibitumLog.add('[$currentTimestamp] $selected');
         }
       }
     } else {
@@ -167,18 +216,36 @@ class _ObservationPageState extends State<ObservationPage> {
 
   void finalizeCurrentLine() {
     if (currentLine.trim().isEmpty || currentTimestamp == null) return;
+    final line = '[$currentTimestamp] $currentLine';
+
     setState(() {
-      observationLog.add('[$currentTimestamp] $currentLine');
+      if (isCurrentAdLib) {
+        adLibitumLog.add(line);
+      } else {
+        observationLog.add(line);
+      }
+      displayLog.add(line); // ✅ always add to combined display
       currentLine = '';
       currentTimestamp = null;
+      isCurrentAdLib = false;
     });
   }
 
+
+
   void undoLastLine() {
     setState(() {
-      if (observationLog.isNotEmpty) observationLog.removeLast();
+      if (displayLog.isNotEmpty) {
+        final removed = displayLog.removeLast();
+        if (observationLog.contains(removed)) {
+          observationLog.remove(removed);
+        } else if (adLibitumLog.contains(removed)) {
+          adLibitumLog.remove(removed);
+        }
+      }
     });
   }
+
 
   String _formatTime(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -187,7 +254,16 @@ class _ObservationPageState extends State<ObservationPage> {
     return '$minutes:$seconds';
   }
 
-  String get fullTextLog => [...observationLog, if (currentLine.isNotEmpty) currentLine].join('\n');
+  String get fullTextLog {
+    final previewLine = currentLine.isNotEmpty && currentTimestamp != null
+        ? '[$currentTimestamp] $currentLine'
+        : null;
+
+    return [...displayLog, if (previewLine != null) previewLine].join('\n');
+  }
+
+
+
 
   Future<void> saveAdLibitumLog() async {
     if (adLibitumLog.isEmpty) return;
@@ -222,7 +298,8 @@ class _ObservationPageState extends State<ObservationPage> {
         body: fileBytes,
       );
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Dropbox upload failed: $e');
       return false;
     }
   }
@@ -238,7 +315,7 @@ class _ObservationPageState extends State<ObservationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.groupName),
+        title: Text("Group Scan Obs"),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -267,77 +344,189 @@ class _ObservationPageState extends State<ObservationPage> {
               style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
             ),
           ),
-          IconButton(
-            icon: Icon(Icons.play_arrow, color: Colors.green),
-            onPressed: () {
-              _audioPlayer.play(AssetSource('completed_ding.mp3'));
-              setState(() {
-                observationLog.clear();
-                currentLine = '';
-                currentTimestamp = null;
-                _elapsedTime = Duration.zero;
-              });
-              startObservationTimer();
-              startVisualTimer();
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.flag, color: Colors.orange),
-            onPressed: () async {
-              _audioPlayer.play(AssetSource('completed_yay.mp3'));
-              _periodicTimer?.cancel();
-              _elapsedTimer?.cancel();
-              final now = DateTime.now();
-              final filename = '${widget.groupName}_${now.toIso8601String().replaceAll(":", "-")}.csv';
-              final directory = await getApplicationDocumentsDirectory();
-              final filePath = '${directory.path}/$filename';
-              final file = File(filePath);
-              final csvContent = observationLog.map((line) => '"$line"').join('\n');
-              await file.writeAsString(csvContent);
-              await saveAdLibitumLog();
-              final success = await uploadFileToDropbox(filePath, '/$filename');
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(success ? '✅ Uploaded to Dropbox!' : '❌ Upload failed.')),
-              );
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.close, color: Colors.red),
-            tooltip: 'Cancel Observation',
-            onPressed: () {
-              _audioPlayer.play(AssetSource('button_press.mp3'));
-              showDialog(
-                context: context,
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    title: Text("Cancel Observation?"),
-                    content: Text("Are you sure you want to cancel this observation and delete this data?"),
-                    actions: [
-                      TextButton(
-                        child: Text("No"),
-                        onPressed: () => Navigator.pop(context),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // Start Button
+              InkWell(
+                onTap: () {
+                  _audioPlayer.play(AssetSource('sounds/completed_ding.mp3'));
+
+                  final now = DateTime.now();
+                  setState(() {
+                    observationLog.clear();
+                    currentLine = '';
+                    currentTimestamp = null;
+                    _elapsedTime = Duration.zero;
+                    globals.recordedDateAndTime = _formatDateAndTime(now); // ✅ Save tablet's time
+                  });
+
+
+                  startObservationTimer();
+                  startVisualTimer();
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/icon/start_icon.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    Text(
+                      'Start',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(blurRadius: 3, color: Colors.black, offset: Offset(1, 1)),
+                        ],
                       ),
-                      TextButton(
-                        child: Text("Yes"),
-                        onPressed: () {
-                          _audioPlayer.play(AssetSource('trumpet_fail.mp3'));
-                          setState(() {
-                            observationLog.clear();
-                            currentLine = '';
-                            currentTimestamp = null;
-                            _elapsedTime = Duration.zero;
-                          });
-                          _elapsedTimer?.cancel();
-                          _periodicTimer?.cancel();
-                          Navigator.pop(context);
-                        },
-                      ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Complete Button
+              InkWell(
+                onTap: () async {
+                  _audioPlayer.play(AssetSource('sounds/completed_yay.mp3'));
+                  _periodicTimer?.cancel();
+                  _elapsedTimer?.cancel();
+
+                  final selectedFolder = await showDialog<String>(
+                    context: context,
+                    builder: (_) => const DropboxFolderPicker(),
+                  );
+                  if (selectedFolder == null) return; // User canceled
+
+                  // File naming
+                  final String fileGroup = widget.groupName;
+                  final String fileGroupHeader = widget.groupName.toUpperCase();
+                  final String fileDate = "${globals.selectedYear ?? 'YYYY'}${(globals.selectedMonth ?? 'MM').padLeft(2, '0')}${(globals.selectedDay ?? 'DD').padLeft(2, '0')}";
+                  final String fileTimeSuffix = (globals.selectedTimeOfDay ?? 'TIME').toUpperCase();
+                  final filename = "$fileGroup $fileDate $fileTimeSuffix.txt";
+
+                  final directory = await getApplicationDocumentsDirectory();
+                  final filePath = '${directory.path}/$filename';
+                  final file = File(filePath);
+
+                  // Header
+                  final header = [
+                    '# Group: $fileGroupHeader',
+                    '# Date and Time: ${globals.recordedDateAndTime ?? ''}',
+                    '# Observer: ${globals.selectedExperimenter ?? ''}',
+                    '# Estrous: ${globals.selectedEstrous ?? ''}',
+                    '# Location: ${globals.selectedLocation ?? ''}',
+                    '# Temperature: ${globals.selectedTemperature ?? ''}',
+                    '# Weather Condition: ${globals.selectedWeather ?? ''}',
+                    '# Fed: ${globals.selectedFed ?? ''}',
+                    '# Food in Enclosure: ${globals.selectedFoodPresent ?? ''}',
+                    '# Comments: ${globals.selectedComments ?? ''}',
+                    '# Data:',
+                    '#',
+                    'Timestamp IndividualA Behavior IndividualB'
+                  ];
+
+                  final dataLines = observationLog.map((line) => line).toList();
+                  final ablibLines = ["#", "# Ablib Data:"];
+                  ablibLines.addAll(adLibitumLog.map((line) => line));
+
+                  final allContent = [...header, ...dataLines, ...ablibLines].join('\n');
+                  await file.writeAsString(allContent);
+
+                  final dropboxPath = '${selectedFolder.startsWith('/') ? '' : '/'}$selectedFolder/$filename';
+                  debugPrint('Uploading to Dropbox path: $dropboxPath');
+                  final success = await uploadFileToDropbox(filePath, dropboxPath);
+
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(success ? '✅ Uploaded to Dropbox!' : '❌ Upload failed.')),
                   );
                 },
-              );
-            },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/icon/end_icon.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    Text(
+                      'Complete',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(blurRadius: 3, color: Colors.black, offset: Offset(1, 1)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+
+              // Cancel Button
+              InkWell(
+                onTap: () {
+                  _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: Text("Cancel Observation?"),
+                        content: Text("Are you sure you want to cancel this observation and delete this data?"),
+                        actions: [
+                          TextButton(
+                            child: Text("No"),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          TextButton(
+                            child: Text("Yes"),
+                            onPressed: () {
+                              _audioPlayer.play(AssetSource('sounds/trumpet_fail.mp3'));
+                              setState(() {
+                                observationLog.clear();
+                                currentLine = '';
+                                currentTimestamp = null;
+                                _elapsedTime = Duration.zero;
+                              });
+                              _elapsedTimer?.cancel();
+                              _periodicTimer?.cancel();
+                              Navigator.pop(context);
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/icon/cancel_icon.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    Text(
+                      'Cancel',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(blurRadius: 3, color: Colors.black, offset: Offset(1, 1)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -379,7 +568,7 @@ class _ObservationPageState extends State<ObservationPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: behaviors.keys.map((b) {
-                      return OutlinedButton(
+                      return ElevatedButton(
                         onPressed: () => addBehavior(b),
                         child: Text(b),
                       );
@@ -391,7 +580,7 @@ class _ObservationPageState extends State<ObservationPage> {
                     children: [
                       ElevatedButton.icon(
                         onPressed: () {
-                          _audioPlayer.play(AssetSource('enter_sound.mp3'));
+                          _audioPlayer.play(AssetSource('sounds/enter_sound.mp3'));
                           finalizeCurrentLine();
                         },
                         icon: Icon(Icons.keyboard_return),
@@ -401,10 +590,16 @@ class _ObservationPageState extends State<ObservationPage> {
                           foregroundColor: Colors.white,
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.undo, color: Colors.red),
-                        tooltip: 'Undo Last Line',
+
+                      //Undo last line button
+                      ElevatedButton.icon(
                         onPressed: undoLastLine,
+                        icon: Icon(Icons.undo),
+                        label: Text("Undo"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
                       ),
                     ],
                   ),

@@ -1,0 +1,7 @@
+    ResearchObs was created by Jhonatan M. Saldaña Santisteban as an attempt to build an intuitive and customizable app that makes behavioral data collection easy to use, easy to edit, and efficient for all researchers in behavioral data. Designed for work in the field or lab, ResearchObs supports real-time observation, flexible metadata entry (such as subject, behavior, location, and context), and structured data management for a variety of settings, from scientific studies to animal welfare monitoring.
+
+    Therefore, ResearchObs is also a valuable tool for zoos, aquariums, sanctuaries, and other care facilities looking to monitor behavior and assess welfare. It’s equally accessible to everyday users interested in tracking the behavior of their pets or local wildlife to better understand them.
+
+    To ensure that your data is protected, all information is stored locally on your device, giving you full control and privacy. When you're ready, your data can be securely exported to Dropbox for backup, analysis, or collaboration.
+
+    ResearchObs is an ongoing project, and user feedback is welcome to help guide future updates and improvements. If you have any comments, concerns, or would like to contribute to its development, please contact jsaldana@researchobs.com.

@@ -34,7 +34,7 @@ dependencies:
   http: ^0.13.6
   shared_preferences: ^2.2.0
   crypto: ^3.0.3
-
+  path_provider: ^2.0.15
 
 
 
@@ -57,6 +57,15 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+#calls in the  PNGs
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png" #keep this here for iOS icons
+  adaptive_icon_background: "assets/icon/app_icon_background.png" #this creates the background in android
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png" #this creates the forebround in android
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -70,11 +79,21 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/completed_ding.mp3
-    - assets/trumpet_fail.mp3
-    - assets/completed_yay.mp3
-    - assets/enter_sound.mp3
-    - assets/button_press.mp3
+    - assets/sounds/completed_ding.mp3
+    - assets/sounds/trumpet_fail.mp3
+    - assets/sounds/completed_yay.mp3
+    - assets/sounds/enter_sound.mp3
+    - assets/sounds/button_press.mp3
+    - assets/images/welcome_logo.png
+    - assets/images/about_logo.png
+    - assets/images/dropbox_logo.png
+    - assets/icon/storage_icon.png
+    - assets/icon/settings_icon.png
+    - assets/icon/about_icon.png
+    - assets/icon/start_icon.png
+    - assets/icon/end_icon.png
+    - assets/icon/cancel_icon.png
+    - assets/text/about_researchobs.txt
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

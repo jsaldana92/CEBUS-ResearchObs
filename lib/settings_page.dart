@@ -5,6 +5,8 @@ import 'globals.dart';
 import 'dropbox_oauth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'about_page.dart';
+import 'navigation_helpers.dart';
 import 'package:http/http.dart' as http;
 
 
@@ -59,7 +61,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Settings')),
+      appBar: AppBar(title: Text('')), //text inserted here shows up near the <-
       body: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [
@@ -132,6 +134,51 @@ class _SettingsPageState extends State<SettingsPage> {
             Text('No Dropbox user logged in.', style: TextStyle(color: Colors.grey)),
           ]
         ],
+      ),
+      bottomNavigationBar: BottomAppBar(
+        elevation: 0,
+        color: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    createSlideRoute(AboutPage(), fromLeft: false),
+                  );
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/icon/about_icon.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    Text(
+                      'About',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(
+                            blurRadius: 3,
+                            color: Colors.black,
+                            offset: Offset(1, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -361,7 +408,12 @@ class _ManageGroupsPageState extends State<ManageGroupsPage> {
             Divider(),
             TextField(
               controller: _groupController,
-              decoration: InputDecoration(labelText: 'Add New Group'),
+              decoration: InputDecoration(
+                labelText: 'Add New Group',
+                filled: true, // ✅ enables background fill
+                fillColor: Color(0xFFd9ded9), // ✅ sets background to white
+                border: OutlineInputBorder(), // optional: makes it look cleaner
+              ),
             ),
             SizedBox(height: 12),
             ElevatedButton(
@@ -466,6 +518,8 @@ class _EditGroupMembersPageState extends State<EditGroupMembersPage> {
               maxLines: 4,
               decoration: InputDecoration(
                 labelText: 'Members (comma-separated)',
+                filled: true,
+                fillColor: Color(0xFFd9ded9),
                 border: OutlineInputBorder(),
               ),
             ),
@@ -567,7 +621,11 @@ class _EditExperimentersPageState extends State<EditExperimentersPage> {
             Divider(),
             TextField(
               controller: _controller,
-              decoration: InputDecoration(labelText: 'Add New Experimenter'),
+              decoration: InputDecoration(
+                labelText: 'Add New Experimenter',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Color(0xFFd9ded9),),
             ),
             SizedBox(height: 12),
             ElevatedButton(
