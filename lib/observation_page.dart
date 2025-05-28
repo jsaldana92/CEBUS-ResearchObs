@@ -355,11 +355,15 @@ class _ObservationPageState extends State<ObservationPage> {
                   final now = DateTime.now();
                   setState(() {
                     observationLog.clear();
+                    adLibitumLog.clear();       // ✅ Clear ad libitum memory
+                    displayLog.clear();         // ✅ Clear visual display log
                     currentLine = '';
                     currentTimestamp = null;
+                    isCurrentAdLib = false;
                     _elapsedTime = Duration.zero;
-                    globals.recordedDateAndTime = _formatDateAndTime(now); // ✅ Save tablet's time
+                    globals.recordedDateAndTime = _formatDateAndTime(now);
                   });
+
 
 
                   startObservationTimer();
@@ -489,8 +493,11 @@ class _ObservationPageState extends State<ObservationPage> {
                               _audioPlayer.play(AssetSource('sounds/trumpet_fail.mp3'));
                               setState(() {
                                 observationLog.clear();
+                                adLibitumLog.clear();       // ✅ Clear ad libitum memory
+                                displayLog.clear();         // ✅ Clear visual display log
                                 currentLine = '';
                                 currentTimestamp = null;
+                                isCurrentAdLib = false;
                                 _elapsedTime = Duration.zero;
                               });
                               _elapsedTimer?.cancel();

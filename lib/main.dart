@@ -353,7 +353,7 @@ class HomeScreenState extends State<HomeScreen> {
                     TextField(
                       controller: yearController,
                       keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: "Year (e.g. 2025)"),
+                      decoration: InputDecoration(labelText: "Year (e.g. 1992)"),
                       onChanged: (_) => setDialogState(() {}),
                     ),
                     TextField(
@@ -365,7 +365,7 @@ class HomeScreenState extends State<HomeScreen> {
                     TextField(
                       controller: dayController,
                       keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: "Day (e.g. 02)"),
+                      decoration: InputDecoration(labelText: "Day (e.g. 05)"),
                       onChanged: (_) => setDialogState(() {}),
                     ),
                     Align(
