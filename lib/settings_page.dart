@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'about_page.dart';
 import 'navigation_helpers.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 
 class SettingsPage extends StatefulWidget {
@@ -26,8 +27,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadDropboxAccountInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('dropbox_access_token');
+    final secureStorage = FlutterSecureStorage();
+    final token = await secureStorage.read(key: 'dropbox_access_token');
     if (token == null || token.isEmpty) return;
 
     final response = await http.post(
@@ -50,8 +51,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _logoutDropbox() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('dropbox_access_token');
+    final secureStorage = FlutterSecureStorage(); // ✅ no SharedPreferences
+    await secureStorage.delete(key: 'dropbox_access_token');
     setState(() {
       dropboxEmail = null;
       dropboxName = null;
@@ -102,22 +103,28 @@ class _SettingsPageState extends State<SettingsPage> {
           ElevatedButton.icon(
             icon: Icon(Icons.cloud_upload),
             label: Text('Log in to Dropbox'),
-            onPressed: () async {
-              try {
-                print('▶️ Starting Dropbox authentication...');
-                await DropboxOAuthService.authenticate();
-                print('✅ Authentication completed.');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('✅ Logged into Dropbox!')),
-                );
-                _loadDropboxAccountInfo();
-              } catch (e) {
-                print('❌ Dropbox login failed: \$e');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('❌ Dropbox login failed: \$e')),
-                );
-              }
-            },
+              onPressed: () async {
+                try {
+                  print('▶️ Starting Dropbox authentication...');
+                  await DropboxOAuthService.authenticate();
+                  print('✅ Authentication completed.');
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('✅ Logged into Dropbox!')),
+                  );
+
+                  await _loadDropboxAccountInfo();
+                } catch (e) {
+                  final message = e.toString().contains("CANCELED")
+                      ? "Login canceled by user."
+                      : "Dropbox login failed: $e";
+
+                  print('❌ $message');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('❌ $message')),
+                  );
+                }
+              },
           ),
           SizedBox(height: 24),
           if (dropboxName != null && dropboxEmail != null) ...[

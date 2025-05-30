@@ -4,6 +4,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 
 class DropboxOAuthService {
   static const String clientId = '7trhu6wr795ibp5';
@@ -53,9 +55,9 @@ class DropboxOAuthService {
     final accessToken = tokenJson['access_token'];
 
     if (accessToken is String && accessToken.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('dropbox_access_token', accessToken);
-      print('✅ Dropbox access token saved');
+      final secureStorage = FlutterSecureStorage();
+      await secureStorage.write(key: 'dropbox_access_token', value: accessToken);
+      print('✅ Dropbox access token securely saved');
     } else {
       print('❌ Failed to obtain access token. Full response:');
       print(jsonEncode(tokenJson));

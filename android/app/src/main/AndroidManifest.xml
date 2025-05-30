@@ -21,14 +21,22 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- 🟢 App launch -->
+            <!-- 🟢 App launch intent -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- ✅ Dropbox OAuth redirect intent filter -->
+            <intent-filter android:label="flutter_web_auth_2">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="researchobs" android:host="auth" />
+            </intent-filter>
         </activity>
 
-        <!-- ✅ flutter_web_auth callback handler -->
+        <!-- CallbackActivity: for `flutter run` debug mode -->
         <activity android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
             android:exported="true">
             <intent-filter android:label="flutter_web_auth_2">
@@ -38,6 +46,9 @@
                 <data android:scheme="researchobs" android:host="auth" />
             </intent-filter>
         </activity>
+
+
+
 
 
 
