@@ -37,4 +37,16 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.containsKey(key);
   }
+
+  static const _kAcceptedPoliciesKey = 'hasAcceptedPolicies';
+
+  Future<bool> getHasAcceptedPolicies() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAcceptedPoliciesKey) ?? false;
+  }
+
+  Future<void> setHasAcceptedPolicies(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAcceptedPoliciesKey, value);
+  }
 }

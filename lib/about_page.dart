@@ -17,7 +17,7 @@ class AboutPage extends StatelessWidget {
       builder: (BuildContext context) {
         final screenSize = MediaQuery.of(context).size;
         return Dialog(
-          insetPadding: EdgeInsets.zero,  // 👈 No forced margin
+          insetPadding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
             width: screenSize.width * 0.9,

@@ -8,25 +8,25 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 
 class DropboxOAuthService {
-  static const String clientId = '7trhu6wr795ibp5';
-  static const String redirectUri = 'researchobs://auth';
+  static const String clientId = 'ss06fg1u0j8j1ad';
+  static const String redirectUri = 'cebus-researchobs://auth';
 
   static Future<void> authenticate() async {
     final codeVerifier = _generateRandomString(64);
-    final codeChallenge = _generateCodeChallenge(codeVerifier); // ✅ Use SHA256 challenge
+    final codeChallenge = _generateCodeChallenge(codeVerifier);
 
     final authUrl = Uri.https('www.dropbox.com', '/oauth2/authorize', {
       'client_id': clientId,
       'response_type': 'code',
       'code_challenge': codeChallenge,
-      'code_challenge_method': 'S256', // ✅ Correct method for hashed challenge
+      'code_challenge_method': 'S256',
       'redirect_uri': redirectUri,
       'token_access_type': 'offline',
     });
 
     final result = await FlutterWebAuth2.authenticate(
       url: authUrl.toString(),
-      callbackUrlScheme: "researchobs",
+      callbackUrlScheme: "cebus-researchobs",
     );
 
     print("🔁 Received redirect result: $result");

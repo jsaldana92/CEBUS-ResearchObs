@@ -9,6 +9,8 @@ import 'storage_page.dart';
 import 'navigation_helpers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'dart:typed_data';
+
 
 
 
@@ -96,15 +98,87 @@ class HomeScreen extends StatefulWidget {
 
 class HomeScreenState extends State<HomeScreen> {
 
-  final AudioPlayer _audioPlayer = AudioPlayer(); // enables sound in home screen
+  @override
+  void dispose() {
+    _sfxPlayer.dispose();
+    super.dispose();
+  }
+
+  // One lightweight player just for tap/click sounds on the home screen.
+  final AudioPlayer _sfxPlayer = AudioPlayer(playerId: 'home_sfx');
+
+  // Map logical keys -> asset paths
+  final Map<String, String> _sfxPaths = {
+    'tap': 'sounds/button_press.mp3',
+  };
+
+  // Preloaded raw bytes live here
+  final Map<String, Uint8List> _sfxBytes = {};
+
+  Future<void> _preloadSfx() async {
+    try {
+      // Load each asset into memory once
+      for (final entry in _sfxPaths.entries) {
+        final data = await rootBundle.load(entry.value);
+        _sfxBytes[entry.key] = data.buffer.asUint8List();
+      }
+      // For short sfx we want a clean start each time
+      await _sfxPlayer.setReleaseMode(ReleaseMode.stop);
+
+      // Optional: give the OS a hint this is UI/tap audio
+      try {
+        await _sfxPlayer.setAudioContext(const AudioContext(
+          android: AudioContextAndroid(
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.assistanceSonification,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+            isSpeakerphoneOn: true,
+            stayAwake: false,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.ambient,
+            options: [AVAudioSessionOptions.mixWithOthers],
+          ),
+        ));
+      } catch (_) {/* ok if not supported in your version */}
+    } catch (e) {
+      debugPrint('Home sfx preload error: $e');
+    }
+  }
+
 
   @override
   void initState() {
     super.initState();
+    _preloadSfx();
     if (widget.showPolicyPopup) {
       Future.delayed(Duration.zero, () => showConsentDialog(context));
     }
   }
+
+  Future<void> _playSfx(String key) async {
+    try {
+      final bytes = _sfxBytes[key];
+      if (bytes != null) {
+        // If user taps very fast, ensure a fresh start
+        await _sfxPlayer.stop();
+        await _sfxPlayer.play(BytesSource(bytes));
+        return;
+      }
+    } catch (e) {
+      debugPrint('Home sfx play error: $e');
+    }
+
+    // Fallback (should rarely happen if preload succeeded)
+    final path = _sfxPaths[key];
+    if (path != null) {
+      try {
+        await _sfxPlayer.stop();
+        await _sfxPlayer.play(AssetSource(path));
+      } catch (_) {}
+    }
+  }
+
 
   void showConsentDialog(BuildContext context) {
     showDialog(
@@ -114,27 +188,32 @@ class HomeScreenState extends State<HomeScreen> {
         return AlertDialog(
           title: const Text('Welcome to ResearchObs'),
           content: const Text(
-              'Before using this app, please review and accept our Privacy Policy and Terms of Use.'),
+              'Before using ResearchObs, please review the Terms of Use and Privacy Policy.'
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
           actions: [
-            TextButton(
-              onPressed: () {
-                showPolicyDialog(context, 'Privacy Policy', 'assets/text/privacy_policy.txt');
-              },
-              child: const Text('Privacy Policy'),
-            ),
-            TextButton(
-              onPressed: () {
-                showPolicyDialog(context, 'Terms of Use', 'assets/text/terms_of_use.txt');
-              },
-              child: const Text('Terms of Use'),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => _showPolicyDialog(
+                    context, 'Terms of Use', 'assets/text/terms_of_use.txt'),
+                  child: const Text('Terms of Use'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                onPressed: () => _showPolicyDialog(
+                    context, 'Privacy Policy', 'assets/text/privacy_policy.txt'),
+                  child: const Text('Privacy Policy'),
+                ),
+              ],
             ),
             ElevatedButton(
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setBool('hasAcceptedPolicies', true);
-                Navigator.of(context).pop();
+                if (mounted) Navigator.of(context).pop(); // close consent gate
               },
-              child: const Text('Accept & Continue'),
+              child: const Text('I agree to the Terms of Use and Privacy Policy'),
             ),
           ],
         );
@@ -142,7 +221,7 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void showPolicyDialog(BuildContext context, String title, String assetPath) async {
+  void _showPolicyDialog(BuildContext context, String title, String assetPath) async {
     final text = await rootBundle.loadString(assetPath);
     final screenSize = MediaQuery.of(context).size;
 
@@ -150,21 +229,20 @@ class HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (BuildContext context) {
         return Dialog(
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: screenSize.width * 0.2,
-            vertical: screenSize.height * 0.05,
-          ),
+          insetPadding: EdgeInsets.zero, // Same as AboutPage
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
-            width: screenSize.width * 0.6,
+            width: screenSize.width * 0.9,
             height: screenSize.height * 0.9,
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(title,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center),
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
                 const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
@@ -185,7 +263,6 @@ class HomeScreenState extends State<HomeScreen> {
       },
     );
   }
-
 
 
 
@@ -976,7 +1053,7 @@ class HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 6.0),
                     child: ElevatedButton(
                       onPressed: () {
-                        _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
+                        _playSfx('tap');
                         resetObservationInputs();
                         _showTimeOfDayDialog(context, name);
                       },
@@ -1005,7 +1082,7 @@ class HomeScreenState extends State<HomeScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () async {
-                  _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
+                  _playSfx('tap');
                   await Navigator.of(context).push(
                     createSlideRoute(StoragePage(), fromLeft: false),
                   );
@@ -1041,7 +1118,7 @@ class HomeScreenState extends State<HomeScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () async {
-                  _audioPlayer.play(AssetSource('sounds/button_press.mp3'));
+                  _playSfx('tap');
                   await Navigator.of(context).push(
                     createSlideRoute(SettingsPage(), fromLeft: false),
                   );

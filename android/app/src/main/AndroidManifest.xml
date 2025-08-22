@@ -27,13 +27,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- ✅ Dropbox OAuth redirect intent filter -->
-            <intent-filter android:label="flutter_web_auth_2">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="researchobs" android:host="auth" />
-            </intent-filter>
+
         </activity>
 
         <!-- CallbackActivity: for `flutter run` debug mode -->
@@ -43,7 +37,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="researchobs" android:host="auth" />
+                <data android:scheme="cebus-researchobs" android:host="auth" />
             </intent-filter>
         </activity>
 

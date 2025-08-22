@@ -2,12 +2,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:http/http.dart' as http;
 import 'dropbox_folder_picker.dart';
 import 'dart:convert';
 import 'package:media_scanner/media_scanner.dart';
 import 'dart:async';
+import 'dropbox_token.dart';
+
 
 
 
@@ -260,10 +262,15 @@ class _GroupStoragePageState extends State<GroupStoragePage> {
     final dropboxPath = '/$cleanedFolder/$fileName';
 
     final success = await _uploadFileToDropbox(file.path, dropboxPath);
-
-    if (!context.mounted) return;
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(success ? '✅ Uploaded to $cleanedFolder!' : '❌ Upload failed.')),
+      SnackBar(
+        content: Text(
+          success
+              ? '✅ Uploaded to $cleanedFolder'
+              : '❌ Upload failed (see logs).',
+        ),
+      ),
     );
   }
 
@@ -271,32 +278,60 @@ class _GroupStoragePageState extends State<GroupStoragePage> {
 
   Future<bool> _uploadFileToDropbox(String filePath, String dropboxPath) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('dropbox_access_token');
-      if (token == null) return false;
+      final token = await getDropboxToken(); // 🔁 centralized reader
+      if (token == null || token.isEmpty) {
+        debugPrint('Dropbox upload failed: no access token found');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Not connected to Dropbox. Please log in first.')),
+          );
+        }
+        return false;
+      }
+
+      // Path hygiene (leading slash; no doubled slashes)
+      final cleanedPath = ('/$dropboxPath')
+          .replaceAll(RegExp(r'/{2,}'), '/')
+          .replaceFirst(RegExp(r'^/+'), '/');
 
       final fileBytes = await File(filePath).readAsBytes();
-      final response = await http.post(
+
+      final response = await http
+          .post(
         Uri.parse('https://content.dropboxapi.com/2/files/upload'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/octet-stream',
           'Dropbox-API-Arg': jsonEncode({
-            'path': dropboxPath,
-            'mode': 'overwrite',
-            'autorename': false,
+            'path': cleanedPath,
+            // Keep this consistent with your observation page:
+            'mode': 'add',           // or 'overwrite' if you prefer here
+            'autorename': true,      // true matches your observation page behavior
             'mute': false,
           }),
         },
         body: fileBytes,
-      );
+      )
+          .timeout(const Duration(seconds: 15)); // optional timeout for UI snappiness
 
+      if (response.statusCode != 200) {
+        debugPrint('Dropbox upload HTTP ${response.statusCode}: ${response.body}');
+      }
       return response.statusCode == 200;
+    } on TimeoutException {
+      debugPrint('Dropbox upload timeout.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dropbox upload timed out. Check your connection.')),
+        );
+      }
+      return false;
     } catch (e) {
       debugPrint('Dropbox upload error: $e');
       return false;
     }
   }
+
 
   Future<void> _exportGroupObservations(BuildContext context) async {
     final documentsDir = Directory('/storage/emulated/0/Documents');
