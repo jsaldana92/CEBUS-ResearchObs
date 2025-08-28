@@ -2,16 +2,24 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
-import 'dart:convert';
+
 import 'dart:io';
-import 'package:http/http.dart' as http;
+
 import 'package:path_provider/path_provider.dart';
 import 'globals.dart' as globals;
 import 'main.dart';
 import 'dropbox_folder_picker.dart';
-import 'dropbox_token.dart';
+
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:typed_data';
+import 'upload_queue_manager.dart';
+import 'upload_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dropbox_upload_service.dart';
+import 'dropbox_oauth_service.dart';
 
 
 class ObservationPage extends StatefulWidget {
@@ -24,7 +32,49 @@ class ObservationPage extends StatefulWidget {
   _ObservationPageState createState() => _ObservationPageState();
 }
 
+Future<String?> _loadLastUsedDropboxPath() async {
+  final prefs = await SharedPreferences.getInstance();
+  // Same key your picker uses
+  return prefs.getString('dropbox_last_folder_path');
+}
+
 class _ObservationPageState extends State<ObservationPage> {
+  Future<bool> _isOnline() async {
+    final r = await Connectivity().checkConnectivity();
+    return r != ConnectivityResult.none;
+  }
+
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('api.dropboxapi.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _uploadNow({
+    required String localFilePath,
+    required String dropboxDestPath,
+  }) async {
+    final token = await DropboxOAuthService.getAccessToken();
+    if (token == null || token.isEmpty) return false;
+
+    final dest = dropboxDestPath.startsWith('/') ? dropboxDestPath : '/$dropboxDestPath';
+    try {
+      await DropboxUploadService.uploadFileChunked(
+        accessToken: token,
+        localFilePath: localFilePath,
+        dropboxDestPath: dest,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+
   final AudioPlayer _audioPlayer = AudioPlayer();
   // NEW low-latency SFX player + buffers
   final AudioPlayer _sfxPlayer = AudioPlayer(playerId: 'sfx');
@@ -140,6 +190,7 @@ class _ObservationPageState extends State<ObservationPage> {
   @override
   void initState() {
     super.initState();
+    UploadQueueManager.I.init();
     subjects = [...(globals.groupMembers[widget.groupName] ?? []), 'Inter-G'];
     _preloadSfx();
   }
@@ -175,18 +226,15 @@ class _ObservationPageState extends State<ObservationPage> {
   }
 
   Map<String, dynamic> behaviors = {
-    'Proximity': null,
-    'Contact': null,
-    'Groom': null,
-    'Play': null,
-    'Sexual': null,
-    'Feed+': ['Solo-Feed', 'Proximity-Feed', 'Contact-Feed', 'Forage'],
-    'Share+': ['Active-Share', 'Passive-Share', 'Cofeed', 'Beg'],
-    'Inactive': null,
-    'Manipulate': null,
-    'Locomote': null,
-    'Aggress+': ['Aggress', 'Supplant'],
     'Abnormal': null,
+    'Groom': null,
+    'Manipulate': null,
+    'Play': null,
+    'Contact': null,
+    'Sexual': null,
+    'Share+': ['Active-Share', 'Passive-Share', 'Cofeed', 'Beg'],
+    'Proximity': null,
+    'Feed+': ['Solo-Feed', 'Proximity-Feed', 'Contact-Feed', 'Forage'],
     'Ab Lib+': {
       'Non-Contact Aggression': 'NC-Aggress*',
       'Contact Aggression': 'C-Aggress*',
@@ -201,7 +249,10 @@ class _ObservationPageState extends State<ObservationPage> {
       'Beg': 'Beg*',
       'Food Share': 'Food-Share*',
     },
-    'Note+': 'text'
+    'Inactive': null,
+    'Aggress+': ['Aggress', 'Supplant'],
+    'Note+': 'text',
+    'Locomote': null
   };
 
   void updateBehaviors(Map<String, dynamic> newBehaviors) {
@@ -262,7 +313,7 @@ class _ObservationPageState extends State<ObservationPage> {
     _periodicTimer?.cancel();
     _elapsedTimer?.cancel();
 
-    // File naming
+    // ---------- Build filename ----------
     final String fileGroup = widget.groupName;
     final String fileGroupHeader = widget.groupName.toUpperCase();
     final String fileDate =
@@ -270,7 +321,7 @@ class _ObservationPageState extends State<ObservationPage> {
     final String fileTimeSuffix = (globals.selectedTimeOfDay ?? 'TIME').toUpperCase();
     final filename = "$fileGroup $fileDate $fileTimeSuffix.txt";
 
-    // Write to internal storage first
+    // ---------- Write to local storage ----------
     final directory = await getApplicationDocumentsDirectory();
     final filePath = '${directory.path}/$filename';
     final file = File(filePath);
@@ -288,7 +339,7 @@ class _ObservationPageState extends State<ObservationPage> {
       '# Comments: ${globals.selectedComments ?? ''}',
       '# Data:',
       '#',
-      'Timestamp IndividualA Behavior IndividualB'
+      'Timestamp IndividualA Behavior IndividualB IndividualC IndividualD'
     ];
 
     final dataLines = observationLog.map((line) => line).toList();
@@ -296,27 +347,81 @@ class _ObservationPageState extends State<ObservationPage> {
     final allContent = [...header, ...dataLines, ...ablibLines].join('\n');
     await file.writeAsString(allContent);
 
-    // Now ask for Dropbox folder
+    // ---------- Ask user for Dropbox folder ----------
     final selectedFolder = await showDialog<String>(
       context: context,
       builder: (_) => const DropboxFolderPicker(),
     );
     if (selectedFolder == null) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       setState(() => _isRunning = false);
       return;
     }
 
-    // Then upload
-    final dropboxPath = '${selectedFolder.startsWith('/') ? '' : '/'}$selectedFolder/$filename';
-    final success = await uploadFileToDropbox(filePath, dropboxPath);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(success ? '✅ Uploaded to Dropbox!' : '❌ Upload failed.')),
-    );
+    // Normalize folder path
+    String destFolder = selectedFolder.trim();
+    destFolder = destFolder.replaceAll(RegExp(r'/+$'), '');
+    if (destFolder.isEmpty) destFolder = '/';
+    if (!destFolder.startsWith('/')) destFolder = '/$destFolder';
 
+    final destPath = (destFolder == '/')
+        ? '/$filename'
+        : '$destFolder/$filename';
+
+    // ---------- Single source of truth for token ----------
+    final token = await DropboxOAuthService.getAccessToken();
+    final online = await _hasInternet();
+
+    // Try immediate upload if we can, else queue
+    if (online && token != null && token.isNotEmpty) {
+      try {
+        await DropboxUploadService.uploadFileChunked(
+          accessToken: token,
+          localFilePath: filePath,
+          dropboxDestPath: destPath,
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ Uploaded to Dropbox!')),
+        );
+      } catch (e) {
+        // Fall back to queue on any failure
+        final job = UploadJob(
+          localFilePath: filePath,
+          fileName: filename,
+          dropboxFolderId: 'id:unknown',
+          pathLowerFallback: destFolder, // e.g. "/ResearchObs/Logan"
+        );
+        await UploadQueueManager.I.enqueue(job);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('📤 Upload problem; queued for later.')),
+        );
+      }
+    } else {
+      // Offline or no token -> queue (and tell the user why)
+      final job = UploadJob(
+        localFilePath: filePath,
+        fileName: filename,
+        dropboxFolderId: 'id:unknown',
+        pathLowerFallback: destFolder,
+      );
+      await UploadQueueManager.I.enqueue(job);
+
+      if (!mounted) return;
+      final msg = (token == null || token.isEmpty)
+          ? 'No Dropbox session detected. Queued for later—please reconnect Dropbox.'
+          : 'Offline. Queued for upload when you’re online.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+
+    if (!mounted) return;
     setState(() => _isRunning = false);
   }
+
+
 
   void _confirmCancel() {
     if (!_isRunning) return;
@@ -520,6 +625,8 @@ class _ObservationPageState extends State<ObservationPage> {
 
   Future<void> saveAdLibitumLog() async {
     if (adLibitumLog.isEmpty) return;
+
+    // 1) Write the CSV to app documents
     final now = DateTime.now();
     final filename = '${widget.groupName}_${now.toIso8601String().replaceAll(":", "-")}_adlibitum.csv';
     final directory = await getApplicationDocumentsDirectory();
@@ -527,42 +634,43 @@ class _ObservationPageState extends State<ObservationPage> {
     final file = File(filePath);
     final content = adLibitumLog.map((line) => '"$line"').join('\n');
     await file.writeAsString(content);
-    await uploadFileToDropbox(filePath, '/$filename');
-  }
 
-  Future<bool> uploadFileToDropbox(String filePath, String dropboxPath) async {
-    try {
-      final token = await getDropboxToken();        // ⬅️ centralized reader
-      if (token == null || token.isEmpty) {
-        debugPrint('Dropbox upload failed: no access token found');
-        return false;
-      }
-
-      final fileBytes = await File(filePath).readAsBytes();
-      final response = await http.post(
-        Uri.parse('https://content.dropboxapi.com/2/files/upload'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/octet-stream',
-          'Dropbox-API-Arg': jsonEncode({
-            'path': dropboxPath,
-            'mode': 'add',
-            'autorename': true,
-            'mute': false,
-          }),
-        },
-        body: fileBytes,
+    // 2) Pick a destination: prefer last-used folder; otherwise ask user
+    String? path = await _loadLastUsedDropboxPath();
+    if (path == null) {
+      path = await showDialog<String>(
+        context: context,
+        builder: (_) => const DropboxFolderPicker(),
       );
-
-      if (response.statusCode != 200) {
-        debugPrint('Dropbox upload HTTP ${response.statusCode}: ${response.body}');
+      if (path == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Save cancelled (no Dropbox folder selected).')),
+        );
+        return;
       }
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('Dropbox upload failed: $e');
-      return false;
     }
+
+    // Normalize to leading slash (picker already does this, but just in case)
+    if (!path.startsWith('/')) path = '/$path';
+
+    // 3) Enqueue the upload (offline-safe)
+    final job = UploadJob(
+      localFilePath: filePath,
+      fileName: filename,
+      dropboxFolderId: 'id:unknown',   // forces resolveFolderPath to use fallback if needed
+      pathLowerFallback: path,         // e.g., "/ResearchObs/Logan"
+    );
+    await UploadQueueManager.I.enqueue(job);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('📤 Ad-lib log queued for Dropbox. I’ll send it when you’re online.')),
+    );
   }
+
+
+
 
   @override
   void dispose() {

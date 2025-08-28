@@ -3,12 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:http/http.dart' as http;
+
 import 'dropbox_folder_picker.dart';
-import 'dart:convert';
+
 import 'package:media_scanner/media_scanner.dart';
 import 'dart:async';
-import 'dropbox_token.dart';
+import 'upload_queue_manager.dart';
+import 'upload_models.dart';
+import 'dropbox_oauth_service.dart';
+import 'dropbox_upload_service.dart';
 
 
 
@@ -23,6 +26,17 @@ class GroupStoragePage extends StatefulWidget {
 }
 
 class _GroupStoragePageState extends State<GroupStoragePage> {
+
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('api.dropboxapi.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   List<FileSystemEntity> matchingFiles = [];
 
   @override
@@ -250,87 +264,64 @@ class _GroupStoragePageState extends State<GroupStoragePage> {
 
 
   void _showDropboxUploadDialog(File file, String fileName) async {
+    // 1) Ask for a Dropbox folder (same picker you already use)
     final selectedFolder = await showDialog<String>(
       context: context,
       builder: (_) => const DropboxFolderPicker(),
     );
-
     if (selectedFolder == null) return;
 
-    // Normalize path: remove trailing slashes and ensure one leading slash
-    String cleanedFolder = selectedFolder.replaceAll(RegExp(r'^/+'), '').replaceAll(RegExp(r'/+$'), '');
-    final dropboxPath = '/$cleanedFolder/$fileName';
+    // 2) Normalize the folder path (ensure exactly one leading slash, no trailing slash)
+    String destFolder = selectedFolder.trim();
+    destFolder = destFolder.replaceAll(RegExp(r'/+$'), '');
+    if (destFolder.isEmpty) destFolder = '/';
+    if (!destFolder.startsWith('/')) destFolder = '/$destFolder';
 
-    final success = await _uploadFileToDropbox(file.path, dropboxPath);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? '✅ Uploaded to $cleanedFolder'
-              : '❌ Upload failed (see logs).',
-        ),
-      ),
-    );
-  }
+    final destPath = '$destFolder/$fileName';
 
+    // 3) Single source of truth for token + online check
+    final token = await DropboxOAuthService.getAccessToken();
+    final online = await _hasInternet();
 
-
-  Future<bool> _uploadFileToDropbox(String filePath, String dropboxPath) async {
-    try {
-      final token = await getDropboxToken(); // 🔁 centralized reader
-      if (token == null || token.isEmpty) {
-        debugPrint('Dropbox upload failed: no access token found');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Not connected to Dropbox. Please log in first.')),
-          );
-        }
-        return false;
-      }
-
-      // Path hygiene (leading slash; no doubled slashes)
-      final cleanedPath = ('/$dropboxPath')
-          .replaceAll(RegExp(r'/{2,}'), '/')
-          .replaceFirst(RegExp(r'^/+'), '/');
-
-      final fileBytes = await File(filePath).readAsBytes();
-
-      final response = await http
-          .post(
-        Uri.parse('https://content.dropboxapi.com/2/files/upload'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/octet-stream',
-          'Dropbox-API-Arg': jsonEncode({
-            'path': cleanedPath,
-            // Keep this consistent with your observation page:
-            'mode': 'add',           // or 'overwrite' if you prefer here
-            'autorename': true,      // true matches your observation page behavior
-            'mute': false,
-          }),
-        },
-        body: fileBytes,
-      )
-          .timeout(const Duration(seconds: 15)); // optional timeout for UI snappiness
-
-      if (response.statusCode != 200) {
-        debugPrint('Dropbox upload HTTP ${response.statusCode}: ${response.body}');
-      }
-      return response.statusCode == 200;
-    } on TimeoutException {
-      debugPrint('Dropbox upload timeout.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Dropbox upload timed out. Check your connection.')),
+    if (online && token != null && token.isNotEmpty) {
+      // Try immediate upload first (same chunked uploader used elsewhere)
+      try {
+        await DropboxUploadService.uploadFileChunked(
+          accessToken: token,
+          localFilePath: file.path,
+          dropboxDestPath: destPath,
         );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Uploaded to $destFolder')),
+        );
+        return;
+      } catch (e) {
+        // Fall through to queue on any failure
       }
-      return false;
-    } catch (e) {
-      debugPrint('Dropbox upload error: $e');
-      return false;
     }
+
+    // 4) Offline or upload failed → enqueue for later
+    final job = UploadJob(
+      localFilePath: file.path,
+      fileName: fileName,
+      dropboxFolderId: 'id:unknown',
+      pathLowerFallback: destFolder, // e.g., "/ResearchObs/Logan"
+    );
+    await UploadQueueManager.I.enqueue(job);
+
+    if (!mounted) return;
+    final msg = (token == null || token.isEmpty)
+        ? 'No Dropbox session detected. Queued for later—please reconnect Dropbox.'
+        : (online ? 'Upload problem; queued for later.' : 'Offline. Queued for upload when you’re online.');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('📤 $msg')));
   }
+
+
+
+
+
 
 
   Future<void> _exportGroupObservations(BuildContext context) async {

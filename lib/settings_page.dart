@@ -138,7 +138,7 @@ class _SettingsPageState extends State<SettingsPage> {
               onPressed: _logoutDropbox,
             ),
           ] else ...[
-            Text('No Dropbox user logged in.', style: TextStyle(color: Colors.grey)),
+            Text('No Dropbox user logged in.', style: TextStyle(color: Colors.grey[900])),
           ]
         ],
       ),
