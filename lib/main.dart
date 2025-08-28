@@ -10,7 +10,7 @@ import 'navigation_helpers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:typed_data';
-
+import 'upload_queue_manager.dart';
 
 
 
@@ -24,6 +24,7 @@ import 'dart:typed_data';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   final prefs = await SharedPreferences.getInstance();
   final hasAccepted = prefs.getBool('hasAcceptedPolicies') ?? false;
 
@@ -47,12 +48,13 @@ void main() async {
       'Logan': ['Logan', 'Ivory', 'Ira', 'Paddy', 'Irene', 'Ingrid'],
       'Griffin': ['Griffin', 'Lily', 'Lexi', 'Wren', 'Widget'],
       'Nkima': ['Nkima', 'Nala', 'Gambit', 'Lychee'],
-      'Mason': ['Mason', 'Gonzo', 'Gretel', 'Beeker', 'Benny', 'Bias', 'Bailey'],
+      'Mason': ['Mason', 'Beeker', 'Benny', 'Bias', 'Bailey', 'Gonzo', 'Gretel'],
       'Liam': ['Liam', 'Isabelle', 'Applesauce', 'Scarlett'],
       'Attila': ['Attila', 'Albert'],
     };
     await StorageService.saveMap('groupMembers', globals.groupMembers);
   }
+  await UploadQueueManager.I.init();
 
   runApp(ResearchObsApp(showPolicyPopup: !hasAccepted)); //only run app if privay policy and terms of use have been accepted
 }
