@@ -387,13 +387,14 @@ class _MassTransferPageState extends State<MassTransferPage> {
           const Divider(height: 1),
 
           // ------- Bulk actions -------
-          Padding(
+          Container(
+            width: double.infinity,             // take full width
+            color: Colors.grey.shade200,        // 👈 background color for whole strip
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  // Icon-only toggle: Select all / Unselect all
                   Tooltip(
                     message: allSelected ? 'Unselect all' : 'Select all',
                     child: IconButton(
@@ -402,8 +403,6 @@ class _MassTransferPageState extends State<MassTransferPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-
-
 
                   FilledButton.icon(
                     style: FilledButton.styleFrom(

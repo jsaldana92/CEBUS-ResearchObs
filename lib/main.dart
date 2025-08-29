@@ -382,6 +382,10 @@ class HomeScreenState extends State<HomeScreen> {
       return y.length == 4 && m.length == 2 && d.length == 2;
     }
 
+    final now = DateTime.now();
+    final currentDateStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -429,6 +433,26 @@ class HomeScreenState extends State<HomeScreen> {
                 ),
                 child: Column(
                   children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.today, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Current Date: $currentDateStr',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
                     TextField(
                       controller: yearController,
                       keyboardType: TextInputType.number,

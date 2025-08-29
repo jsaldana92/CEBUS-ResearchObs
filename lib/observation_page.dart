@@ -32,11 +32,7 @@ class ObservationPage extends StatefulWidget {
   _ObservationPageState createState() => _ObservationPageState();
 }
 
-Future<String?> _loadLastUsedDropboxPath() async {
-  final prefs = await SharedPreferences.getInstance();
-  // Same key your picker uses
-  return prefs.getString('dropbox_last_folder_path');
-}
+
 
 class _ObservationPageState extends State<ObservationPage> {
   Future<bool> _isOnline() async {
@@ -262,13 +258,10 @@ class _ObservationPageState extends State<ObservationPage> {
   }
 
   void startObservationTimer() {
-    _playCount = 0;
-    _periodicTimer = Timer.periodic(Duration(minutes: 3), (timer) {
-      _playCount += 1;
-      if (_playCount >= 10) {
-        timer.cancel();
-      } else {
-        _playSfx('ding');
+    _periodicTimer = Timer.periodic(const Duration(minutes: 3), (timer) {
+      _playSfx('ding');          // play first, including tick 10
+      if (timer.tick >= 10) {
+        timer.cancel();          // stop after the 10th (30:00) ding
       }
     });
   }
@@ -623,55 +616,6 @@ class _ObservationPageState extends State<ObservationPage> {
 
 
 
-  Future<void> saveAdLibitumLog() async {
-    if (adLibitumLog.isEmpty) return;
-
-    // 1) Write the CSV to app documents
-    final now = DateTime.now();
-    final filename = '${widget.groupName}_${now.toIso8601String().replaceAll(":", "-")}_adlibitum.csv';
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = '${directory.path}/$filename';
-    final file = File(filePath);
-    final content = adLibitumLog.map((line) => '"$line"').join('\n');
-    await file.writeAsString(content);
-
-    // 2) Pick a destination: prefer last-used folder; otherwise ask user
-    String? path = await _loadLastUsedDropboxPath();
-    if (path == null) {
-      path = await showDialog<String>(
-        context: context,
-        builder: (_) => const DropboxFolderPicker(),
-      );
-      if (path == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Save cancelled (no Dropbox folder selected).')),
-        );
-        return;
-      }
-    }
-
-    // Normalize to leading slash (picker already does this, but just in case)
-    if (!path.startsWith('/')) path = '/$path';
-
-    // 3) Enqueue the upload (offline-safe)
-    final job = UploadJob(
-      localFilePath: filePath,
-      fileName: filename,
-      dropboxFolderId: 'id:unknown',   // forces resolveFolderPath to use fallback if needed
-      pathLowerFallback: path,         // e.g., "/ResearchObs/Logan"
-    );
-    await UploadQueueManager.I.enqueue(job);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('📤 Ad-lib log queued for Dropbox. I’ll send it when you’re online.')),
-    );
-  }
-
-
-
-
   @override
   void dispose() {
     _logScrollController.dispose();
@@ -820,21 +764,43 @@ class _ObservationPageState extends State<ObservationPage> {
                       Widget buildSubjectColumn(List<String> col) {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: col.map((s) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: ElevatedButton(
-                                onPressed: () => addToCurrentLine(s),
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size(double.infinity, 44),
-                                  alignment: Alignment.center,
+                          children: col.asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final s = entry.value;
+
+                            return Column(
+                              children: [
+                                ElevatedButton(
+                                  onPressed: () => addToCurrentLine(s),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 44),
+                                    alignment: Alignment.center,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                  ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      s,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.visible,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
                                 ),
-                                child: Text(s),
-                              ),
+                                if (i != col.length - 1) // don’t draw after last button
+                                  const Divider(
+                                    thickness: 1,
+                                    height: 16,             // spacing around line
+                                    color: Colors.black12,  // light grey
+                                  ),
+                              ],
                             );
                           }).toList(),
                         );
                       }
+
+
 
                       Widget buildBehaviorColumn(List<String> col) {
                         return Column(

@@ -316,7 +316,7 @@ class _StoragePageState extends State<StoragePage> {
               ),
               ElevatedButton.icon(
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Export All Obs to Dropbox'),
+                label: const Text('Upload All Obs to Dropbox'),
                 onPressed: () => _exportAllObservationsToDropbox(context),
               ),
             ],

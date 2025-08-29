@@ -341,6 +341,76 @@ class _GroupStoragePageState extends State<GroupStoragePage> {
     );
   }
 
+  Future<void> _uploadGroupObservationsToDropbox() async {
+    if (matchingFiles.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No ${widget.groupName} observations to upload.')),
+      );
+      return;
+    }
+
+    // 1) Pick destination folder
+    final selectedFolder = await showDialog<String>(
+      context: context,
+      builder: (_) => const DropboxFolderPicker(),
+    );
+    if (selectedFolder == null) return;
+
+    // 2) Normalize folder (one leading slash, no trailing slash)
+    String destFolder = selectedFolder.trim();
+    destFolder = destFolder.replaceAll(RegExp(r'/+$'), '');
+    if (destFolder.isEmpty) destFolder = '/';
+    if (!destFolder.startsWith('/')) destFolder = '/$destFolder';
+
+    // 3) Token + connectivity
+    final token = await DropboxOAuthService.getAccessToken();
+    final online = await _hasInternet();
+
+    int uploaded = 0;
+    int queued = 0;
+    int failed = 0;
+
+    for (final fse in matchingFiles) {
+      final file = File(fse.path);
+      final name = file.path.split(Platform.pathSeparator).last;
+      final destPath = '$destFolder/$name';
+
+      if (online && token != null && token.isNotEmpty) {
+        try {
+          await DropboxUploadService.uploadFileChunked(
+            accessToken: token,
+            localFilePath: file.path,
+            dropboxDestPath: destPath,
+          );
+          uploaded += 1;
+          continue;
+        } catch (_) {
+          // fall through to queue
+        }
+      }
+
+      try {
+        final job = UploadJob(
+          localFilePath: file.path,
+          fileName: name,
+          dropboxFolderId: 'id:unknown',
+          pathLowerFallback: destFolder,
+        );
+        await UploadQueueManager.I.enqueue(job);
+        queued += 1;
+      } catch (_) {
+        failed += 1;
+      }
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Dropbox: $uploaded uploaded, $queued queued, $failed failed.')),
+    );
+  }
+
+
 
 
   void _deleteGroupObservations() async {
@@ -429,13 +499,23 @@ class _GroupStoragePageState extends State<GroupStoragePage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
+                  // Export to Documents
                   ElevatedButton.icon(
-                    icon: Icon(Icons.download),
+                    icon: const Icon(Icons.download),
                     label: Text('Export ${widget.groupName}\'s Obs'),
                     onPressed: () => _exportGroupObservations(context),
                   ),
+
+                  // NEW: Upload to Dropbox
                   ElevatedButton.icon(
-                    icon: Icon(Icons.delete_forever, color: Colors.red),
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    label: Text('Upload ${widget.groupName}\'s Obs'),
+                    onPressed: _uploadGroupObservationsToDropbox,
+                  ),
+
+                  // Delete all (with long-press confirm you already have)
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.delete_forever, color: Colors.red),
                     label: Text('Delete ${widget.groupName}\'s Obs'),
                     style: ElevatedButton.styleFrom(foregroundColor: Colors.red),
                     onPressed: () => _showDeleteConfirmationDialog(File(''), '', isGroupDelete: true),
