@@ -21,6 +21,8 @@ import 'dart:convert';
 import 'dropbox_upload_service.dart';
 import 'dropbox_oauth_service.dart';
 
+import 'package:wakelock_plus/wakelock_plus.dart';
+
 
 class ObservationPage extends StatefulWidget {
   final String groupName;
@@ -85,6 +87,16 @@ class _ObservationPageState extends State<ObservationPage> {
   };
 
   bool isCurrentAdLib = false;
+
+  List<List<T>> _columnsByRows<T>(List<T> items, int rowsPerCol) {
+    if (rowsPerCol <= 0) return [items];
+    final cols = <List<T>>[];
+    for (int i = 0; i < items.length; i += rowsPerCol) {
+      final end = (i + rowsPerCol < items.length) ? i + rowsPerCol : items.length;
+      cols.add(items.sublist(i, end));
+    }
+    return cols;
+  }
 
   List<List<T>> _makeColumns<T>(List<T> items, int columnCount) {
     if (items.isEmpty) return List.generate(columnCount, (_) => <T>[]);
@@ -281,6 +293,7 @@ class _ObservationPageState extends State<ObservationPage> {
 
   void _handleStart() {
     _playSfx('ding');
+    WakelockPlus.enable();
 
     final now = DateTime.now();
     setState(() {
@@ -305,6 +318,7 @@ class _ObservationPageState extends State<ObservationPage> {
     _playSfx('yay');
     _periodicTimer?.cancel();
     _elapsedTimer?.cancel();
+    WakelockPlus.disable();
 
     // ---------- Build filename ----------
     final String fileGroup = widget.groupName;
@@ -448,6 +462,7 @@ class _ObservationPageState extends State<ObservationPage> {
                 });
                 _elapsedTimer?.cancel();
                 _periodicTimer?.cancel();
+                WakelockPlus.disable();
                 Navigator.pop(context);
               },
             ),
@@ -545,7 +560,7 @@ class _ObservationPageState extends State<ObservationPage> {
 
   void finalizeCurrentLine() {
     if (currentLine.trim().isEmpty || currentTimestamp == null) return;
-    final line = '[$currentTimestamp] $currentLine';
+    final line = '$currentTimestamp $currentLine';
 
     setState(() {
       if (isCurrentAdLib) {
@@ -607,7 +622,7 @@ class _ObservationPageState extends State<ObservationPage> {
 
   String get fullTextLog {
     final previewLine = currentLine.isNotEmpty && currentTimestamp != null
-        ? '[$currentTimestamp] $currentLine'
+        ? '$currentTimestamp $currentLine'
         : null;
 
     return [...displayLog, if (previewLine != null) previewLine].join('\n');
@@ -619,12 +634,15 @@ class _ObservationPageState extends State<ObservationPage> {
   @override
   void dispose() {
     _logScrollController.dispose();
-    _sfxPlayer.dispose();   // NEW
-    _audioPlayer.dispose(); // recommended
-    super.dispose();
+    _sfxPlayer.dispose();
+    _audioPlayer.dispose();
+
     final homeState = context.findAncestorStateOfType<HomeScreenState>();
     homeState?.resetObservationInputs();
+
+    super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -725,7 +743,7 @@ class _ObservationPageState extends State<ObservationPage> {
                       color: Colors.grey.shade900, // black background
                       padding: const EdgeInsets.symmetric(vertical: 2),
                       child: Text(
-                        '[$currentTimestamp] $currentLine',
+                        '$currentTimestamp $currentLine',
                         style: const TextStyle(fontSize: 16, color: Colors.white), // white text
                       ),
                     ),
@@ -744,19 +762,20 @@ class _ObservationPageState extends State<ObservationPage> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       // --- Big-column widths (with gap subtraction to avoid overflow) ---
-                      const int subjectCols = 2;
                       final double leftWidth  = constraints.maxWidth * 0.35;
                       final double rightWidth = constraints.maxWidth * 0.65 - kOuterGap;
 
+                      // *** SUBJECTS: make columns with at most 5 items each (column-first) ***
+                      final subjectColumns = _columnsByRows<String>(subjects, 5);
+                      final int subjectCols = subjectColumns.length;
+
                       // --- Behavior subcolumn count (dynamic, based on a min column width) ---
-                      // Include gutter in the calculation so we don't over-allocate columns.
                       final int behaviorCols = ((rightWidth + kBehaviorColGutter) /
                           (kMinBehaviorColWidth + kBehaviorColGutter))
                           .floor()
                           .clamp(3, 10);
 
                       // --- Prepare data in columns ---
-                      final subjectColumns  = _makeColumns<String>(subjects, subjectCols);
                       final behaviorKeys    = behaviors.keys.toList();
                       final behaviorColumns = _makeColumns<String>(behaviorKeys, behaviorCols);
 
@@ -764,41 +783,32 @@ class _ObservationPageState extends State<ObservationPage> {
                       Widget buildSubjectColumn(List<String> col) {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: col.asMap().entries.map((entry) {
-                            final i = entry.key;
-                            final s = entry.value;
-
-                            return Column(
-                              children: [
-                                ElevatedButton(
-                                  onPressed: () => addToCurrentLine(s),
-                                  style: ElevatedButton.styleFrom(
-                                    minimumSize: const Size(double.infinity, 44),
-                                    alignment: Alignment.center,
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                                  ),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      s,
-                                      maxLines: 1,
-                                      softWrap: false,
-                                      overflow: TextOverflow.visible,
-                                      textAlign: TextAlign.center,
-                                    ),
+                          children: col.map((s) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: ElevatedButton(
+                                onPressed: () => addToCurrentLine(s),
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(double.infinity, 44),
+                                  alignment: Alignment.center,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    s,
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    overflow: TextOverflow.visible,
+                                    textAlign: TextAlign.center,
                                   ),
                                 ),
-                                if (i != col.length - 1) // don’t draw after last button
-                                  const Divider(
-                                    thickness: 1,
-                                    height: 16,             // spacing around line
-                                    color: Colors.black12,  // light grey
-                                  ),
-                              ],
+                              ),
                             );
                           }).toList(),
                         );
                       }
+
 
 
 
@@ -838,20 +848,38 @@ class _ObservationPageState extends State<ObservationPage> {
                               children: [
                                 const Text("Subjects", style: TextStyle(fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 8),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: List.generate(subjectCols, (i) {
-                                    return Expanded(
-                                      child: Padding(
-                                        padding: EdgeInsets.only(right: i == subjectCols - 1 ? 0 : 8),
-                                        child: buildSubjectColumn(subjectColumns[i]),
-                                      ),
-                                    );
-                                  }),
+
+                                // Make the vertical divider span the full height of the tallest column
+                                IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      for (int i = 0; i < subjectCols; i++) ...[
+                                        Expanded(
+                                          child: Padding(
+                                            // keep a little horizontal space but no per-button lines
+                                            padding: EdgeInsets.only(right: i == subjectCols - 1 ? 0 : 8),
+                                            child: buildSubjectColumn(subjectColumns[i]),
+                                          ),
+                                        ),
+                                        if (i != subjectCols - 1)
+                                        // a continuous vertical line between the two columns
+                                          const SizedBox(
+                                            width: 12, // spacing between columns (tweak as you like)
+                                            child: VerticalDivider(
+                                              thickness: 1,
+                                              color: Colors.black26, // or Colors.black12 for lighter
+                                            ),
+                                          ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
                           ),
+
+
 
                           const SizedBox(width: kOuterGap), // the fixed 12px gap
 

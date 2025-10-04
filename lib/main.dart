@@ -11,6 +11,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:typed_data';
 import 'upload_queue_manager.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 
 
@@ -180,6 +183,40 @@ class HomeScreenState extends State<HomeScreen> {
       } catch (_) {}
     }
   }
+
+  Future<double?> _getCurrentTempF() async {
+    // 1) Ensure permission
+    LocationPermission perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.deniedForever || perm == LocationPermission.denied) {
+      return null; // no permission -> no auto weather
+    }
+
+    // 2) Get position (medium accuracy is fine)
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.medium,
+    );
+
+    // 3) Fetch from Open-Meteo (returns °C)
+    final url = Uri.parse(
+      'https://api.open-meteo.com/v1/forecast'
+          '?latitude=${pos.latitude}&longitude=${pos.longitude}'
+          '&current_weather=true',
+    );
+    final resp = await http.get(url);
+    if (resp.statusCode != 200) return null;
+
+    final data = json.decode(resp.body);
+    final cw = data['current_weather'];
+    if (cw == null || cw['temperature'] == null) return null;
+
+    final c = (cw['temperature'] as num).toDouble(); // °C
+    final f = (c * 9 / 5) + 32;
+    return f;
+  }
+
 
 
   void showConsentDialog(BuildContext context) {
@@ -656,52 +693,126 @@ class HomeScreenState extends State<HomeScreen> {
 
 //proceeds to the next pop up where temperature is input
   void _showTemperatureDialog(BuildContext context, String groupName) {
-    TextEditingController _tempController = TextEditingController();
+    final TextEditingController _tempController = TextEditingController();
+
+    // Local state for the dialog
+    bool _started = false;
+    bool _loading = true;
+    double? _currentTempF;
+    String? _weatherErr;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                  icon: Icon(Icons.close),
-                  onPressed: () {
-                    resetObservationInputs();
-                    Navigator.of(context).popUntil((route) => route.isFirst);
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setDialogState) {
+            // Kick off the fetch exactly once when the dialog builds the first time
+            if (!_started) {
+              _started = true;
+              _getCurrentTempF().then((val) {
+                setDialogState(() {
+                  _currentTempF = val;
+                  _loading = false;
+                  if (val == null) {
+                    _weatherErr = 'Location or weather unavailable';
+                  } else {
+                    // Optional: prefill the text field so user can just tap Next
+                    _tempController.text = _currentTempF!.toStringAsFixed(0);
                   }
+                });
+              }).catchError((_) {
+                setDialogState(() {
+                  _loading = false;
+                  _weatherErr = 'Could not fetch weather';
+                });
+              });
+            }
+
+            return AlertDialog(
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      resetObservationInputs();
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                    },
+                  ),
+                  const Text("Temperature (°F)"),
+                  const SizedBox(width: 48),
+                ],
               ),
-              Text("Temperature (°F)"),
-              SizedBox(width: 48),
-            ],
-          ),
-          content: TextField(
-            controller: _tempController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              hintText: "Enter temperature",
-            ),
-          ),
-          actions: [
-            TextButton(
-              child: Text("Next"),
-              onPressed: () {
-                if (_tempController.text.isNotEmpty) {
-                  setState(() {
-                    globals.selectedTemperature = _tempController.text;
-                  });
-                  Navigator.of(context).pop();
-                  _showWeatherConditionDialog(context, groupName); //links to the next pop up (fed or not?)
-                }
-              },
-            ),
-          ],
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Current location weather row
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.my_location, size: 20),
+                        const SizedBox(width: 8),
+                        if (_loading)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else if (_currentTempF != null)
+                          Text(
+                            'Current location: ${_currentTempF!.toStringAsFixed(0)}°F',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          )
+                        else
+                          Text(
+                            _weatherErr ?? 'Weather unavailable',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Manual override / entry
+                  TextField(
+                    controller: _tempController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      hintText: "Enter temperature",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.thermostat),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  child: const Text("Next"),
+                  onPressed: () {
+                    if (_tempController.text.trim().isNotEmpty) {
+                      setState(() {
+                        globals.selectedTemperature = _tempController.text.trim();
+                      });
+                      Navigator.of(context).pop();
+                      _showWeatherConditionDialog(context, groupName);
+                    }
+                  },
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
+
 
   // starts weather condition pop up
   void _showWeatherConditionDialog(BuildContext context, String groupName) {
