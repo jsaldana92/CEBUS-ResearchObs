@@ -20,6 +20,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dropbox_upload_service.dart';
 import 'dropbox_oauth_service.dart';
+import 'achievements_service.dart';
+import 'achievement_toast.dart';
 
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -56,21 +58,53 @@ class _ObservationPageState extends State<ObservationPage> {
     required String localFilePath,
     required String dropboxDestPath,
   }) async {
-    final token = await DropboxOAuthService.getAccessToken();
+    final dest =
+    dropboxDestPath.startsWith('/') ? dropboxDestPath : '/$dropboxDestPath';
+
+    // Step 4: canonical token pipeline (don’t refresh while offline)
+    final online = await _hasInternet();
+    if (!online) return false;
+
+    final token = await DropboxOAuthService.getValidAccessToken();
     if (token == null || token.isEmpty) return false;
 
-    final dest = dropboxDestPath.startsWith('/') ? dropboxDestPath : '/$dropboxDestPath';
-    try {
+    bool looksLike401(Object e) {
+      final s = e.toString().toLowerCase();
+      return s.contains(' 401') ||
+          s.contains('status=401') ||
+          s.contains('invalid_access_token') ||
+          s.contains('expired_access_token');
+    }
+
+    Future<void> attemptUpload(String tkn) async {
       await DropboxUploadService.uploadFileChunked(
-        accessToken: token,
+        accessToken: tkn,
         localFilePath: localFilePath,
         dropboxDestPath: dest,
       );
+    }
+
+    try {
+      await attemptUpload(token);
       return true;
-    } catch (_) {
+    } catch (e) {
+      // Step 5: 401/expired -> clear access token, refresh once, retry once
+      if (looksLike401(e)) {
+        try {
+          await DropboxOAuthService.clearAccessToken();
+          final token2 = await DropboxOAuthService.getValidAccessToken();
+          if (token2 != null && token2.isNotEmpty) {
+            await attemptUpload(token2);
+            return true;
+          }
+        } catch (_) {
+          // fall through
+        }
+      }
       return false;
     }
   }
+
 
 
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -79,11 +113,12 @@ class _ObservationPageState extends State<ObservationPage> {
 
   final Map<String, Uint8List> _sfxBytes = {};
   final Map<String, String> _sfxPaths = const {
-    'ding':  'sounds/completed_ding.mp3',
-    'yay':   'sounds/completed_yay.mp3',
-    'press': 'sounds/button_press.mp3',
-    'fail':  'sounds/trumpet_fail.mp3',
-    'enter': 'sounds/enter_sound.mp3',
+    'ding':   'sounds/completed_ding.mp3',
+    'yay':    'sounds/completed_yay.mp3',
+    'press':  'sounds/button_press.mp3',
+    'fail':   'sounds/trumpet_fail.mp3',
+    'enter':  'sounds/enter_sound.mp3',
+    'achv':   'sounds/achievement_unlocked.mp3',
   };
 
   bool isCurrentAdLib = false;
@@ -200,6 +235,10 @@ class _ObservationPageState extends State<ObservationPage> {
     super.initState();
     UploadQueueManager.I.init();
     subjects = [...(globals.groupMembers[widget.groupName] ?? []), 'Inter-G'];
+
+    // Achievements toast sound uses our already-initialized SFX player
+    AchievementToast.setSoundPlayer(_sfxPlayer, _sfxPaths['achv']!);
+
     _preloadSfx();
   }
 
@@ -354,7 +393,32 @@ class _ObservationPageState extends State<ObservationPage> {
     final allContent = [...header, ...dataLines, ...ablibLines].join('\n');
     await file.writeAsString(allContent);
 
-    // ---------- Ask user for Dropbox folder ----------
+  // ---------- Achievements: award ONLY if valid complete (must contain a 30:00 timestamp) ----------
+  final observer = (globals.selectedExperimenter ?? '').trim();
+  final groupName = widget.groupName.trim();
+
+  final has30 = observationLog.any((line) => line.startsWith('30:00 '));
+
+    // Rule lock: only award if pressed Complete AND 30:00 was actually recorded in the log
+  if (observer.isNotEmpty && has30) {
+    final tempRaw = globals.selectedTemperature; // likely String
+    final tempF = num.tryParse((tempRaw ?? '').toString().trim());
+
+    final unlocked = await AchievementsService.awardIfCompleted(
+      observerName: observer,
+      groupName: groupName,
+      isValidComplete: true,
+      completedAt: DateTime.now(),
+      temperatureF: tempF,
+      location: globals.selectedLocation,
+    );
+
+    // Show Halo/Xbox-style toasts (queued)
+    AchievementToast.enqueue(context, unlocked);
+  }
+
+
+  // ---------- Ask user for Dropbox folder ----------
     final selectedFolder = await showDialog<String>(
       context: context,
       builder: (_) => const DropboxFolderPicker(),
@@ -375,36 +439,69 @@ class _ObservationPageState extends State<ObservationPage> {
         ? '/$filename'
         : '$destFolder/$filename';
 
-    // ---------- Single source of truth for token ----------
-    final token = await DropboxOAuthService.getAccessToken();
+    // ---------- Step 4: canonical token pipeline ----------
     final online = await _hasInternet();
+    final token = online ? await DropboxOAuthService.getValidAccessToken() : null;
 
     // Try immediate upload if we can, else queue
     if (online && token != null && token.isNotEmpty) {
-      try {
+      Future<void> attemptUpload(String tkn) async {
         await DropboxUploadService.uploadFileChunked(
-          accessToken: token,
+          accessToken: tkn,
           localFilePath: filePath,
           dropboxDestPath: destPath,
         );
+      }
 
+      bool looksLike401(Object e) {
+        final s = e.toString().toLowerCase();
+        return s.contains(' 401') ||
+            s.contains('status=401') ||
+            s.contains('invalid_access_token') ||
+            s.contains('expired_access_token');
+      }
+
+      bool uploaded = false;
+
+      try {
+        await attemptUpload(token);
+        uploaded = true;
+      } catch (e) {
+        // Step 5: if 401/expired token, clear access token, refresh, retry once
+        if (looksLike401(e)) {
+          try {
+            await DropboxOAuthService.clearAccessToken();
+            final token2 = await DropboxOAuthService.getValidAccessToken();
+            if (token2 != null && token2.isNotEmpty) {
+              await attemptUpload(token2);
+              uploaded = true;
+            }
+          } catch (_) {
+            // fall through to queue
+          }
+        }
+
+        if (!uploaded) {
+          // Fall back to queue on any failure
+          final job = UploadJob(
+            localFilePath: filePath,
+            fileName: filename,
+            dropboxFolderId: 'id:unknown',
+            pathLowerFallback: destFolder, // e.g. "/ResearchObs/Logan"
+          );
+          await UploadQueueManager.I.enqueue(job);
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('📤 Upload problem; queued for later.')),
+          );
+        }
+      }
+
+      if (uploaded) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('✅ Uploaded to Dropbox!')),
-        );
-      } catch (e) {
-        // Fall back to queue on any failure
-        final job = UploadJob(
-          localFilePath: filePath,
-          fileName: filename,
-          dropboxFolderId: 'id:unknown',
-          pathLowerFallback: destFolder, // e.g. "/ResearchObs/Logan"
-        );
-        await UploadQueueManager.I.enqueue(job);
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('📤 Upload problem; queued for later.')),
         );
       }
     } else {
@@ -419,7 +516,7 @@ class _ObservationPageState extends State<ObservationPage> {
 
       if (!mounted) return;
       final msg = (token == null || token.isEmpty)
-          ? 'No Dropbox session detected. Queued for later—please reconnect Dropbox.'
+          ? 'Dropbox upload deferred. Queued for later.'
           : 'Offline. Queued for upload when you’re online.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
@@ -448,8 +545,27 @@ class _ObservationPageState extends State<ObservationPage> {
             ),
             TextButton(
               child: const Text("Yes"),
-              onPressed: () {
+              onPressed: () async {
                 _playSfx('fail');
+
+                // ---------- Achievements: CANCEL EXCEPTION (27:XX near-complete cancels only) ----------
+                final observer = (globals.selectedExperimenter ?? '').trim();
+                final has27 = observationLog.any((l) => l.startsWith('27:')) ||
+                    adLibitumLog.any((l) => l.startsWith('27:'));
+
+                if (observer.isNotEmpty && has27) {
+                  final unlockedFail = await AchievementsService.awardIfCancelledNearComplete(
+                    observerName: observer,
+                    isCancelledNearComplete: true,
+                    cancelledAt: DateTime.now(),
+                  );
+
+                  // Show toasts (queued)
+                  if (mounted && unlockedFail.isNotEmpty) {
+                    AchievementToast.enqueue(context, unlockedFail);
+                  }
+                }
+
                 setState(() {
                   observationLog.clear();
                   adLibitumLog.clear();

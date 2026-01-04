@@ -77,11 +77,12 @@ class UploadQueueManager {
       var queue = await OfflineCacheService.loadQueue();
       if (queue.isEmpty) return;
 
-      final token = await DropboxOAuthService.getAccessToken();
-      if (token == null || token.isEmpty) {
-        debugPrint('[UQM] no access token; keep queue.');
-        return;
-      }
+      final auth = await DropboxOAuthService.authStateSnapshot();
+      debugPrint('[UQM][auth] has_refresh=${auth['has_refresh']} has_access=${auth['has_access']} '
+          'expires_present=${auth['expires_at_ms_present']} ms_remaining=${auth['ms_remaining']} '
+          'needs_refresh=${auth['needs_refresh']}');
+
+
 
       for (var i = 0; i < queue.length; i++) {
         var job = queue[i];
@@ -112,8 +113,7 @@ class UploadQueueManager {
           final normalizedPath =
           targetPath.startsWith('/') ? targetPath : '/$targetPath';
 
-          await DropboxUploadService.uploadFileChunked(
-            accessToken: token,
+          await DropboxUploadService.uploadFileChunkedWithValidToken(
             localFilePath: job.localFilePath,
             dropboxDestPath: '$normalizedPath/${job.fileName}',
           );

@@ -91,6 +91,7 @@ flutter:
     - assets/sounds/completed_yay.mp3
     - assets/sounds/enter_sound.mp3
     - assets/sounds/button_press.mp3
+    - assets/sounds/achievement_unlocked.mp3
     - assets/images/welcome_logo.png
     - assets/images/about_logo.png
     - assets/icon/skull_icon.png

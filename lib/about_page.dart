@@ -1,6 +1,10 @@
 //lib/about_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'achievements_page.dart';
+import 'achievements_service.dart';
+import 'achievement_toast.dart';
+import 'achievements_models.dart';
 
 
 class AboutPage extends StatelessWidget {
@@ -9,6 +13,35 @@ class AboutPage extends StatelessWidget {
   Future<String> loadAboutText() async {
     return await rootBundle.loadString('assets/text/about_researchobs.txt');
   }
+
+  void _playSampleAchievementToast(BuildContext context) {
+    // Prefer a real achievement def from the service catalogs
+    AchievementDef? def;
+
+    final fail = AchievementsService.failCatalog();
+    if (fail.isNotEmpty) {
+      def = fail.first;
+    } else {
+      // Fallback to a normal catalog (pick any stable group name you have)
+      final normal = AchievementsService.catalogForGroup('Griffin');
+      if (normal.isNotEmpty) def = normal.first;
+    }
+
+    // Last-resort fallback so the button never crashes
+    def ??= const AchievementDef(
+      id: 'debug_toast',
+      title: 'Achievement Unlocked!',
+      description: 'This is a test toast from the About page.',
+      threshold: 0,
+      scope: 'global',
+    );
+
+    AchievementToast.enqueue(
+      context,
+      [AchievementUnlocked(def: def, unlockedAt: DateTime.now())],
+    );
+  }
+
 
   void showPolicyDialog(BuildContext context, String title, String assetPath) async {
     final text = await rootBundle.loadString(assetPath);
@@ -110,6 +143,16 @@ class AboutPage extends StatelessWidget {
             },
             child: const Text('Terms of Use'),
           ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AchievementsPage()),
+              );
+            },
+            child: const Text('Achievements'),
+          ),
+
         ],
       ),
     );

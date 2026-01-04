@@ -164,7 +164,6 @@ class _MassTransferPageState extends State<MassTransferPage> {
     if (destFolder.isEmpty) destFolder = '/';
     if (!destFolder.startsWith('/')) destFolder = '/$destFolder';
 
-    final token = await DropboxOAuthService.getAccessToken();
     final online = await _hasInternet();
 
     int uploaded = 0;
@@ -180,10 +179,9 @@ class _MassTransferPageState extends State<MassTransferPage> {
       ));
       final destPath = '$destFolder/${item.name}';
 
-      if (online && token != null && token.isNotEmpty) {
+      if (online) {
         try {
-          await DropboxUploadService.uploadFileChunked(
-            accessToken: token,
+          await DropboxUploadService.uploadFileChunkedWithValidToken(
             localFilePath: item.file.path,
             dropboxDestPath: destPath,
           );
@@ -193,6 +191,7 @@ class _MassTransferPageState extends State<MassTransferPage> {
           // fall through to queue
         }
       }
+
 
       try {
         final job = UploadJob(

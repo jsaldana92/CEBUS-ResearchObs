@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'storage_service.dart';
 import 'globals.dart';
 import 'dropbox_oauth_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'about_page.dart';
 import 'navigation_helpers.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dropbox_token.dart';
+
 
 
 class SettingsPage extends StatefulWidget {
@@ -16,9 +16,13 @@ class SettingsPage extends StatefulWidget {
   _SettingsPageState createState() => _SettingsPageState();
 }
 
+
+
 class _SettingsPageState extends State<SettingsPage> {
   String? dropboxEmail;
   String? dropboxName;
+
+  bool dropboxConnected = false; // Step 2: refresh_token exists
 
   @override
   void initState() {
@@ -27,17 +31,45 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadDropboxAccountInfo() async {
-    final secureStorage = FlutterSecureStorage();
-    final token = await secureStorage.read(key: 'dropbox_access_token');
+    final session = await readDropboxSession();
+
+    // Step 2 rule: connected iff refresh token exists
+    final connected = session.refreshToken != null && session.refreshToken!.isNotEmpty;
+
+    if (!mounted) return;
+    setState(() {
+      dropboxConnected = connected;
+      if (!connected) {
+        dropboxEmail = null;
+        dropboxName = null;
+      }
+    });
+
+    // Access token must come from the canonical, expiry-aware pipeline (Step 4)
+    final token = await DropboxOAuthService.getValidAccessToken();
     if (token == null || token.isEmpty) return;
 
-    final response = await http.post(
-      Uri.parse('https://api.dropboxapi.com/2/users/get_current_account'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': '',
-      },
-    );
+    Future<http.Response> doReq(String t) {
+      return http.post(
+        Uri.parse('https://api.dropboxapi.com/2/users/get_current_account'),
+        headers: {
+          'Authorization': 'Bearer $t',
+        },
+      );
+    }
+
+    var response = await doReq(token);
+
+    // Step 5: 401 -> refresh once -> retry once
+    if (response.statusCode == 401) {
+      await DropboxOAuthService.clearAccessToken();
+      final token2 = await DropboxOAuthService.getValidAccessToken();
+      if (token2 != null && token2.isNotEmpty) {
+        response = await doReq(token2);
+      }
+    }
+
+
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -46,14 +78,14 @@ class _SettingsPageState extends State<SettingsPage> {
         dropboxName = data['name']['display_name'];
       });
     } else {
-      print('Failed to fetch Dropbox account info: ${response.body}');
+      print('Failed to fetch Dropbox account info: status=${response.statusCode}');
     }
   }
 
   Future<void> _logoutDropbox() async {
-    final secureStorage = FlutterSecureStorage(); // ✅ no SharedPreferences
-    await secureStorage.delete(key: 'dropbox_access_token');
+    await DropboxOAuthService.clearSession();
     setState(() {
+      dropboxConnected = false;
       dropboxEmail = null;
       dropboxName = null;
     });
@@ -119,7 +151,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ? "Login canceled by user."
                       : "Dropbox login failed: $e";
 
-                  print('❌ $message');
+                  print('❌ Dropbox login failed (see snackbar).');
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('❌ $message')),
                   );
@@ -127,10 +159,14 @@ class _SettingsPageState extends State<SettingsPage> {
               },
           ),
           SizedBox(height: 24),
-          if (dropboxName != null && dropboxEmail != null) ...[
-            Text('Logged in as:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('Name: $dropboxName'),
-            Text('Email: $dropboxEmail'),
+          if (dropboxConnected) ...[
+            Text('Dropbox is connected.', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (dropboxName != null && dropboxEmail != null) ...[
+              Text('Name: $dropboxName'),
+              Text('Email: $dropboxEmail'),
+            ] else ...[
+              Text('Account info not loaded yet.', style: TextStyle(color: Colors.grey[700])),
+            ],
             SizedBox(height: 12),
             ElevatedButton.icon(
               icon: Icon(Icons.logout),
@@ -190,6 +226,8 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
+
+
 
 class EditBehaviorsPage extends StatefulWidget {
   @override

@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
+import 'dropbox_token.dart';
+import 'dropbox_oauth_service.dart';
 
 class DropboxMetadata {
   final String pathLower; // normalized, lower-case path (e.g., "/researchobs/griffin")
@@ -17,6 +18,50 @@ class DropboxMetadata {
 }
 
 class DropboxUploadService {
+
+  // Step 4: convenience wrapper to enforce canonical token usage
+  static Future<void> uploadFileChunkedWithValidToken({
+    required String localFilePath,
+    required String dropboxDestPath,
+    int chunkSize = 8 * 1024 * 1024,
+  }) async {
+    String? token = await DropboxOAuthService.getValidAccessToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('No valid Dropbox access token');
+    }
+
+    try {
+      await uploadFileChunked(
+        accessToken: token,
+        localFilePath: localFilePath,
+        dropboxDestPath: dropboxDestPath,
+        chunkSize: chunkSize,
+      );
+      return;
+    } catch (e) {
+      final s = e.toString();
+      final looks401 = s.contains(' 401 ') || s.contains(': 401') || s.contains('statusCode 401');
+
+      // Step 5: if 401-ish, refresh once and retry once
+      if (looks401) {
+        await DropboxOAuthService.clearAccessToken();
+        token = await DropboxOAuthService.getValidAccessToken();
+        if (token != null && token.isNotEmpty) {
+          await uploadFileChunked(
+            accessToken: token,
+            localFilePath: localFilePath,
+            dropboxDestPath: dropboxDestPath,
+            chunkSize: chunkSize,
+          );
+          return;
+        }
+      }
+
+      rethrow;
+    }
+  }
+
+
 
   // Convert folderId to path; fall back to provided path if needed.
   static Future<String> resolveFolderPath({
@@ -72,7 +117,7 @@ class DropboxUploadService {
         body: bytes,
       );
       if (resp.statusCode != 200) {
-        throw Exception('Upload failed: ${resp.statusCode} ${resp.body}');
+        throw Exception('Upload failed: ${resp.statusCode}');
       }
       return;
     }
@@ -92,7 +137,7 @@ class DropboxUploadService {
         body: firstChunk,
       );
       if (startResp.statusCode != 200) {
-        throw Exception('Session start failed: ${startResp.statusCode} ${startResp.body}');
+        throw Exception('Session start failed: ${startResp.statusCode}');
       }
       final sessionId = (jsonDecode(startResp.body) as Map)['session_id'] as String;
 
@@ -119,7 +164,7 @@ class DropboxUploadService {
             body: chunk,
           );
           if (appendResp.statusCode != 200) {
-            throw Exception('Session append failed: ${appendResp.statusCode} ${appendResp.body}');
+            throw Exception('Session append failed: ${appendResp.statusCode}');
           }
           offset += chunk.length;
         } else {
@@ -143,7 +188,7 @@ class DropboxUploadService {
             body: chunk,
           );
           if (finishResp.statusCode != 200) {
-            throw Exception('Session finish failed: ${finishResp.statusCode} ${finishResp.body}');
+            throw Exception('Session finish failed: ${finishResp.statusCode}');
           }
           offset += chunk.length; // not strictly needed after finish
         }
@@ -155,31 +200,44 @@ class DropboxUploadService {
 
 
   static Future<DropboxMetadata> getMetadataById(String id) async {
-    // We read the token from SharedPreferences (same key you use elsewhere)
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('dropbox_access_token');
+    // Token via canonical, expiry-aware pipeline
+    final token = await DropboxOAuthService.getValidAccessToken();
     if (token == null || token.isEmpty) {
-      throw Exception('No Dropbox access token');
+      throw Exception('No valid Dropbox access token');
     }
 
     // Dropbox allows "id:xxxx" in the 'path' field to query by file/folder ID.
     final pathArg = id.startsWith('id:') ? id : 'id:$id';
 
-    final resp = await http.post(
-      Uri.parse('https://api.dropboxapi.com/2/files/get_metadata'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'path': pathArg,
-        'include_property_groups': false,
-      }),
-    );
+    Future<http.Response> doReq(String t) {
+      return http.post(
+        Uri.parse('https://api.dropboxapi.com/2/files/get_metadata'),
+        headers: {
+          'Authorization': 'Bearer $t',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'path': pathArg,
+          'include_property_groups': false,
+        }),
+      );
+    }
+
+    var resp = await doReq(token);
+
+    // Step 5: 401 -> refresh once -> retry once
+    if (resp.statusCode == 401) {
+      await DropboxOAuthService.clearAccessToken();
+      final token2 = await DropboxOAuthService.getValidAccessToken();
+      if (token2 != null && token2.isNotEmpty) {
+        resp = await doReq(token2);
+      }
+    }
 
     if (resp.statusCode != 200) {
-      throw Exception('get_metadata failed: ${resp.statusCode} ${resp.body}');
+      throw Exception('get_metadata failed: ${resp.statusCode}');
     }
+
 
     final json = jsonDecode(resp.body) as Map<String, dynamic>;
     return DropboxMetadata.fromJson(json);
@@ -187,12 +245,10 @@ class DropboxUploadService {
 
 
   static Future<bool> uploadFile(String filename, String dropboxPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('dropbox_access_token');
-
+    final token = await DropboxOAuthService.getValidAccessToken();
 
     if (token == null || token.isEmpty) {
-      print('❌ No access token found.');
+      print('❌ No valid access token found.');
       return false;
     }
 
@@ -208,26 +264,40 @@ class DropboxUploadService {
     final bytes = await file.readAsBytes();
 
     final uri = Uri.parse('https://content.dropboxapi.com/2/files/upload');
-    final response = await http.post(
-      uri,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Dropbox-API-Arg': jsonEncode({
-          'path': '/$dropboxPath/$filename',
-          'mode': 'add',
-          'autorename': true,
-          'mute': false,
-        }),
-        'Content-Type': 'application/octet-stream',
-      },
-      body: bytes,
-    );
+    Future<http.Response> doUpload(String t) {
+      return http.post(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $t',
+          'Dropbox-API-Arg': jsonEncode({
+            'path': '/$dropboxPath/$filename',
+            'mode': 'add',
+            'autorename': true,
+            'mute': false,
+          }),
+          'Content-Type': 'application/octet-stream',
+        },
+        body: bytes,
+      );
+    }
+
+    var response = await doUpload(token);
+
+    // Step 5: 401 -> refresh once -> retry once
+    if (response.statusCode == 401) {
+      await DropboxOAuthService.clearAccessToken();
+      final token2 = await DropboxOAuthService.getValidAccessToken();
+      if (token2 != null && token2.isNotEmpty) {
+        response = await doUpload(token2);
+      }
+    }
+
 
     if (response.statusCode == 200) {
       print('✅ File uploaded to Dropbox!');
       return true;
     } else {
-      print('❌ Dropbox upload failed: ${response.body}');
+      print('❌ Dropbox upload failed: status=${response.statusCode}');
       return false;
     }
   }

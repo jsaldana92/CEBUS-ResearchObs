@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dropbox_oauth_service.dart';
 import 'dropbox_token.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -85,8 +86,8 @@ class _DropboxFolderPickerState extends State<DropboxFolderPicker> {
     });
 
     try {
-      // 1) Get token
-      final token = await getDropboxToken();
+      // 1) Get token (canonical, expiry-aware)
+      final token = await DropboxOAuthService.getValidAccessToken();
       if (token == null || token.isEmpty) {
         // Fall back to cache if available
         final cached = await _loadCacheForPath(currentPath);
@@ -129,7 +130,57 @@ class _DropboxFolderPickerState extends State<DropboxFolderPicker> {
       // 4) Non-200 → try cache
       if (res.statusCode != 200) {
         final msg = res.body;
-        debugPrint('list_folder error ${res.statusCode}: $msg');
+        String category = 'http_${res.statusCode}';
+        try {
+          final j = jsonDecode(msg);
+          final err = (j is Map && j['error_summary'] != null) ? j['error_summary'].toString() : '';
+          if (err.isNotEmpty) category = err;
+        } catch (_) {}
+        debugPrint('[DBX][list_folder] error status=${res.statusCode} category=$category');
+
+
+        // Step 5: if 401, refresh once (by clearing access token) and retry once
+        if (res.statusCode == 401) {
+          await DropboxOAuthService.clearAccessToken();
+          final token2 = await DropboxOAuthService.getValidAccessToken();
+
+          if (token2 != null && token2.isNotEmpty) {
+            final res2 = await http
+                .post(
+              Uri.parse('https://api.dropboxapi.com/2/files/list_folder'),
+              headers: {
+                'Authorization': 'Bearer $token2',
+                'Content-Type': 'application/json',
+              },
+              body: body,
+            )
+                .timeout(const Duration(seconds: 20));
+
+            if (res2.statusCode == 200) {
+              final data2 = jsonDecode(res2.body) as Map<String, dynamic>;
+              final entries2 = (data2['entries'] as List).cast<Map<String, dynamic>>();
+
+              final names2 = entries2
+                  .where((e) => e['.tag'] == 'folder')
+                  .map<String>((e) => e['name'] as String)
+                  .toList();
+
+              await _saveCacheForPath(currentPath, names2);
+
+              if (!mounted) return;
+              setState(() {
+                folderNames = names2;
+                _usingCache = false;
+                _cacheFetchedAt = DateTime.now();
+              });
+              return;
+            }
+
+            // If retry still fails, fall through to cache + friendly error below
+            debugPrint('[DBX][list_folder] retry failed status=${res2.statusCode}');
+          }
+        }
+
 
         // Try cache before surfacing error
         final cached = await _loadCacheForPath(currentPath);
@@ -144,11 +195,19 @@ class _DropboxFolderPickerState extends State<DropboxFolderPicker> {
         }
 
         String friendly = 'Could not load folders (${res.statusCode}).';
-        if (msg.contains('invalid_access_token')) {
-          friendly = 'Session expired. Please re-connect Dropbox.';
-        } else if (msg.contains('missing_scope')) {
-          friendly = 'Missing permission. Re-authenticate this app in Dropbox.';
+
+        // Step 7 UI lock:
+        // - Do NOT prompt re-login for ordinary access token issues.
+        // - Only prompt re-auth for true conditions like missing_scope, or if no session exists.
+        if (msg.contains('missing_scope')) {
+          friendly = 'Missing permission. Please re-authenticate Dropbox in Settings.';
+        } else if (msg.contains('invalid_access_token')) {
+          final connected = await hasDropboxSession(); // refresh_token exists
+          friendly = connected
+              ? 'Dropbox authorization is temporarily unavailable. Retrying automatically.'
+              : 'Dropbox is not connected. Please log in from Settings.';
         }
+
 
         if (!mounted) return;
         setState(() {
