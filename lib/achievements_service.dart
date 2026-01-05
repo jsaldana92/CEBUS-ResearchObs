@@ -32,12 +32,38 @@ class AchievementsService {
   static Future<Map<String, dynamic>> getObserverStats(String observer) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kStatsKey);
-    if (raw == null || raw.isEmpty) return {'total': 0, 'groups': <String, int>{}, 'locations': <String, int>{}};
+
+    if (raw == null || raw.isEmpty) {
+      return {
+        'total': 0,
+        'groups': <String, int>{},
+        'locations': <String, int>{},
+        'timeOfDay': <String, int>{},
+      };
+    }
+
     final j = jsonDecode(raw);
-    if (j is! Map) return {'total': 0, 'groups': <String, int>{}, 'locations': <String, int>{}};
+    if (j is! Map) {
+      return {
+        'total': 0,
+        'groups': <String, int>{},
+        'locations': <String, int>{},
+        'timeOfDay': <String, int>{},
+      };
+    }
+
     final o = j[observer];
-    if (o is! Map) return {'total': 0, 'groups': <String, int>{}, 'locations': <String, int>{}};
+    if (o is! Map) {
+      return {
+        'total': 0,
+        'groups': <String, int>{},
+        'locations': <String, int>{},
+        'timeOfDay': <String, int>{},
+      };
+    }
+
     final total = (o['total'] is num) ? (o['total'] as num).toInt() : 0;
+
     final groupsRaw = o['groups'];
     final groups = <String, int>{};
     if (groupsRaw is Map) {
@@ -47,6 +73,7 @@ class AchievementsService {
         groups[k] = (v is num) ? v.toInt() : 0;
       }
     }
+
     final locationsRaw = o['locations'];
     final locations = <String, int>{};
     if (locationsRaw is Map) {
@@ -57,9 +84,24 @@ class AchievementsService {
       }
     }
 
-    return {'total': total, 'groups': groups, 'locations': locations};
+    final todRaw = o['timeOfDay'];
+    final timeOfDay = <String, int>{};
+    if (todRaw is Map) {
+      for (final entry in todRaw.entries) {
+        final k = entry.key.toString();
+        final v = entry.value;
+        timeOfDay[k] = (v is num) ? v.toInt() : 0;
+      }
+    }
 
+    return {
+      'total': total,
+      'groups': groups,
+      'locations': locations,
+      'timeOfDay': timeOfDay,
+    };
   }
+
 
   static Future<Map<String, String>> getObserverHistory(String observer) async {
     final prefs = await SharedPreferences.getInstance();
@@ -91,6 +133,14 @@ class AchievementsService {
     return null;
   }
 
+  static String? _normTimeOfDay(String? amPm) {
+    final raw = (amPm ?? '').trim().toLowerCase();
+    if (raw.isEmpty) return null;
+    if (raw == 'am' || raw.startsWith('a')) return 'am';
+    if (raw == 'pm' || raw.startsWith('p')) return 'pm';
+    return null;
+  }
+
   static int? _normTempF(num? tempF) {
     if (tempF == null) return null;
 
@@ -105,6 +155,24 @@ class AchievementsService {
     return asInt;
   }
 
+  // Temperature bucket mapping for range-based achievements.
+  // 1: <= 38
+  // 2: 39-40
+  // 3: 41-42
+  // 4: 96-97
+  // 5: 98-99
+  // 6: >= 100
+  static int? _tempBucket(int tempF) {
+    if (tempF <= 38) return 1;
+    if (tempF >= 39 && tempF <= 40) return 2;
+    if (tempF >= 41 && tempF <= 42) return 3;
+    if (tempF >= 96 && tempF <= 97) return 4;
+    if (tempF >= 98 && tempF <= 99) return 5;
+    if (tempF >= 100) return 6;
+    return null;
+  }
+
+
 
 
   // ---- Award API (canonical) ----
@@ -114,9 +182,10 @@ class AchievementsService {
     required bool isValidComplete,
     DateTime? completedAt,
 
-    // NEW: used only at valid completion (no drift)
+    // used only at valid completion (no drift)
     num? temperatureF,
-    String? location, // expected: "inside" or "outside" (we’ll normalize)
+    String? location, // "inside" / "outside"
+    String? timeOfDay, // "AM" / "PM" (we’ll normalize)
   }) async {
     if (!isValidComplete) return [];
 
@@ -132,6 +201,8 @@ class AchievementsService {
     final obsStats = (statsJ[observerName] is Map) ? (statsJ[observerName] as Map) : <String, dynamic>{};
     final groups = (obsStats['groups'] is Map) ? (obsStats['groups'] as Map) : <String, dynamic>{};
     final locations = (obsStats['locations'] is Map) ? (obsStats['locations'] as Map) : <String, dynamic>{};
+    final timeOfDayMap = (obsStats['timeOfDay'] is Map) ? (obsStats['timeOfDay'] as Map) : <String, dynamic>{};
+
 
     final total = (obsStats['total'] is num) ? (obsStats['total'] as num).toInt() : 0;
     final newTotal = total + 1;
@@ -144,6 +215,11 @@ class AchievementsService {
     final locCount = (loc != null && locations[loc] is num) ? (locations[loc] as num).toInt() : 0;
     final newLocCount = (loc != null) ? (locCount + 1) : null;
 
+    final tod = _normTimeOfDay(timeOfDay); // "am" | "pm"
+    final todCount = (tod != null && timeOfDayMap[tod] is num) ? (timeOfDayMap[tod] as num).toInt() : 0;
+    final newTodCount = (tod != null) ? (todCount + 1) : null;
+
+
 
     // Write back updated counts
     obsStats['total'] = newTotal;
@@ -153,6 +229,11 @@ class AchievementsService {
     if (loc != null && newLocCount != null) {
       locations[loc] = newLocCount;
       obsStats['locations'] = locations;
+    }
+
+    if (tod != null && newTodCount != null) {
+      timeOfDayMap[tod] = newTodCount;
+      obsStats['timeOfDay'] = timeOfDayMap;
     }
 
     statsJ[observerName] = obsStats;
@@ -181,13 +262,23 @@ class AchievementsService {
             return (def.groupName == groupName) && (newGroupCount >= def.threshold);
 
           case 'temp':
-          // threshold stores the *temperature value* (38, 40, 42, 96, 98, 100)
-            return (tempInt != null) && (tempInt == def.threshold);
+            if (tempInt == null) return false;
+            final bucket = _tempBucket(tempInt);
+            if (bucket == null) return false;
+
+            // threshold stores the *bucket id* (1..6)
+            return bucket == def.threshold;
+
 
           case 'location':
           // groupName field stores "inside" or "outside" for location achievements
             if (loc == null || newLocCount == null) return false;
             return (def.groupName == loc) && (newLocCount >= def.threshold);
+
+          case 'time':
+          // groupName field stores "am" or "pm" for time-of-day achievements
+            if (tod == null || newTodCount == null) return false;
+            return (def.groupName == tod) && (newTodCount >= def.threshold);
 
           default:
             return false;
@@ -420,25 +511,83 @@ class AchievementsService {
     }
 
     // --- Temperature “special day” achievements (valid completion only) ---
-    const tempSpecials = [38, 40, 42, 96, 98, 100];
+    // Range buckets:
+    // 1: <= 38
+    // 2: 39-40
+    // 3: 41-42
+    // 4: 96-97
+    // 5: 98-99
+    // 6: >= 100
+    const tempBuckets = [1, 2, 3, 4, 5, 6];
+
     final tempTitles = <int, String>{
-      38: 'Should have done an inside obs',
-      40: 'And maybe a heater...',
-      42: 'I hope you brought a jacket',
-      96: 'Where is a good shadow?',
-      98: 'Sweaty gloves',
-      100: 'Shorts are not PPE?!',
+      1: 'Should have done an inside obs',
+      2: 'And maybe a heater...',
+      3: 'I hope you brought a jacket',
+      4: 'Where is a good shadow?',
+      5: 'Sweaty gloves',
+      6: 'Shorts are not PPE?!',
     };
 
-    for (final t in tempSpecials) {
+    final tempDescriptions = <int, String>{
+      1: 'Completed an observation at ≤ 38°F.',
+      2: 'Completed an observation at 39–40°F.',
+      3: 'Completed an observation at 41–42°F.',
+      4: 'Completed an observation at 96–97°F.',
+      5: 'Completed an observation at 98–99°F.',
+      6: 'Completed an observation at ≥ 100°F.',
+    };
+
+    for (final b in tempBuckets) {
       defs.add(AchievementDef(
-        id: 'global_temp_${t}F',
-        title: tempTitles[t] ?? 'Temp $t°F',
-        description: 'Completed an observation at $t°F.',
-        threshold: t,   // used as “match value” for temp scope
+        id: 'global_temp_bucket_$b',
+        title: tempTitles[b] ?? 'Temperature',
+        description: tempDescriptions[b] ?? 'Completed an observation at an extreme temperature.',
+        threshold: b, // bucket id
         scope: 'temp',
       ));
     }
+
+    // --- Time-of-day totals (AM/PM), valid completion only ---
+    const todThresholds = [10, 50, 300, 500, 700];
+
+    final todTitlesAm = <int, String>{
+      10: 'The early bird...',
+      50: 'Coffee is not so bad...',
+      300: 'Who needs sleep?',
+      500: 'Go to grad school they said...',
+      700: 'Take a nap, please',
+    };
+
+    final todTitlesPm = <int, String>{
+      10: 'But the second mouse...',
+      50: 'But what I need is caffeine',
+      300: "I hope traffic is ok... ",
+      500: "No I swear, I love staying late",
+      700: 'Go home, please',
+    };
+
+    for (final t in todThresholds) {
+      defs.add(AchievementDef(
+        id: 'global_time_am_$t',
+        title: todTitlesAm[t] ?? 'AM $t',
+        description: 'Completed $t AM observations.',
+        threshold: t,
+        scope: 'time',
+        groupName: 'am',
+      ));
+
+      defs.add(AchievementDef(
+        id: 'global_time_pm_$t',
+        title: todTitlesPm[t] ?? 'PM $t',
+        description: 'Completed $t PM observations.',
+        threshold: t,
+        scope: 'time',
+        groupName: 'pm',
+      ));
+    }
+
+
 
 // --- Location totals (inside/outside), valid completion only ---
     const locThresholds = [200, 400, 600];
@@ -495,6 +644,11 @@ class AchievementsService {
     final obsStats = (statsJ[observerName] is Map) ? (statsJ[observerName] as Map) : <String, dynamic>{};
     final groups = (obsStats['groups'] is Map) ? (obsStats['groups'] as Map) : <String, dynamic>{};
     final locations = (obsStats['locations'] is Map) ? (obsStats['locations'] as Map) : <String, dynamic>{};
+    final timeOfDay = (obsStats['timeOfDay'] is Map) ? (obsStats['timeOfDay'] as Map) : <String, dynamic>{};
+    timeOfDay['am'] = 700;
+    timeOfDay['pm'] = 700;
+    obsStats['timeOfDay'] = timeOfDay;
+
 
     obsStats['total'] = 1000;
     groups[sampleGroupName] = 1000;

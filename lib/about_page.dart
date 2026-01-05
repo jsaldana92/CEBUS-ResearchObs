@@ -152,6 +152,28 @@ class AboutPage extends StatelessWidget {
             },
             child: const Text('Achievements'),
           ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: () async {
+              // TEMP DEBUG: unlock everything for a single observer so we can test the UI.
+              // Remove this button once testing is done.
+              await AchievementsService.debugUnlockAllForObserver(
+                observerName: 'JS',
+                sampleGroupName: 'Griffin',
+              );
+
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('DEBUG: Unlocked all achievements for JS.')),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black87,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('DEBUG: Unlock All (JS)'),
+          ),
+
 
         ],
       ),

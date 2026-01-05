@@ -397,7 +397,15 @@ class _ObservationPageState extends State<ObservationPage> {
   final observer = (globals.selectedExperimenter ?? '').trim();
   final groupName = widget.groupName.trim();
 
-  final has30 = observationLog.any((line) => line.startsWith('30:00 '));
+  // Valid complete = reached 30:00+ on the visual timer OR recorded any 30:XX line.
+  // Using _elapsedTime is the most reliable because logs only get timestamps when Enter is pressed.
+  final has30ByTimer = _elapsedTime >= const Duration(minutes: 30);
+
+  final has30ByLog = observationLog.any((l) => l.startsWith('30:')) ||
+      adLibitumLog.any((l) => l.startsWith('30:'));
+
+  final has30 = has30ByTimer || has30ByLog;
+
 
     // Rule lock: only award if pressed Complete AND 30:00 was actually recorded in the log
   if (observer.isNotEmpty && has30) {
@@ -411,6 +419,7 @@ class _ObservationPageState extends State<ObservationPage> {
       completedAt: DateTime.now(),
       temperatureF: tempF,
       location: globals.selectedLocation,
+      timeOfDay: globals.selectedTimeOfDay, // "AM" / "PM"
     );
 
     // Show Halo/Xbox-style toasts (queued)

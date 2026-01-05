@@ -51,7 +51,7 @@ class AchievementToast {
       }
     } catch (_) {}
 
-    await Future.delayed(const Duration(milliseconds: 3200));
+    await Future.delayed(const Duration(seconds: 5));
     entry.remove();
 
     _showing = false;
